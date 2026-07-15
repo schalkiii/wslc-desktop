@@ -11,6 +11,52 @@ use crate::poller::UiRequest;
 /// How long a toast stays visible.
 const TOAST_TTL: Duration = Duration::from_secs(4);
 
+/// China-accessible Docker registry mirrors offered as one-click prefixes in
+/// the Pull dialog. `(button label, registry host)`. These are public
+/// pull-through mirrors for Docker Hub; clicking one rewrites the registry
+/// host of the current reference.
+const DOCKER_MIRRORS: &[(&str, &str)] = &[
+    ("1Panel", "docker.1panel.live"),
+    ("DaoCloud", "docker.m.daocloud.io"),
+    ("毫秒镜像", "docker.1ms.run"),
+    ("南京大学", "docker.nju.edu.cn"),
+    ("轩辕镜像", "docker.xuanyuan.me"),
+    ("rat.dev", "hub.rat.dev"),
+    ("dockerpull", "dockerpull.org"),
+    ("docker.io", "docker.io"),
+];
+
+/// Rewrite the registry host of a Docker image reference, preserving the image
+/// path and tag. Used by the Pull dialog's one-click mirror buttons.
+///
+/// A reference's first `/`-separated component is a registry host only when it
+/// contains a `.` or `:` (or is `localhost`); otherwise it belongs to the
+/// repository path (an implicit Docker Hub image). We strip any such host, then
+/// prepend the chosen mirror. An empty reference gets a sample image so the
+/// button produces something immediately runnable.
+fn rewrite_registry(reference: &str, mirror: &str) -> String {
+    let trimmed = reference.trim();
+    let path = strip_registry_host(trimmed);
+    let path = if path.is_empty() {
+        "library/nginx:latest"
+    } else {
+        path
+    };
+    format!("{mirror}/{path}")
+}
+
+/// Return the image path (repository + tag) with any leading registry host
+/// removed. `docker.io/library/nginx:latest` → `library/nginx:latest`;
+/// `nginx:latest` → `nginx:latest`.
+fn strip_registry_host(reference: &str) -> &str {
+    match reference.split_once('/') {
+        Some((head, rest)) if head.contains('.') || head.contains(':') || head == "localhost" => {
+            rest
+        }
+        _ => reference,
+    }
+}
+
 impl WslcDesktopApp {
     pub(crate) fn draw_confirm(&mut self, ctx: &egui::Context) {
         if self.confirm.is_none() {
@@ -252,7 +298,27 @@ impl WslcDesktopApp {
                             );
                             ui.end_row();
                         });
-                    ui.add_space(6.0);
+
+                    ui.add_space(8.0);
+                    ui.label(RichText::new("国内镜像源 (点击套用注册表前缀)").small().strong());
+                    ui.add_space(4.0);
+                    // Clickable China-accessible registry mirrors. Clicking one
+                    // rewrites the registry host of the current reference,
+                    // keeping the image path/tag (defaulting to a sample image
+                    // when the field is empty).
+                    ui.horizontal_wrapped(|ui| {
+                        for (label, host) in DOCKER_MIRRORS {
+                            if ui
+                                .button(*label)
+                                .on_hover_text(format!("套用 {host}/…"))
+                                .clicked()
+                            {
+                                d.reference = rewrite_registry(&d.reference, host);
+                            }
+                        }
+                    });
+
+                    ui.add_space(8.0);
                     ui.label(
                         RichText::new("Pull runs in the background; watch the toast for the result.")
                             .small()
@@ -406,4 +472,47 @@ fn field(ui: &mut egui::Ui, label: &str, value: &mut String, hint: &str) {
             .hint_text(hint),
     );
     ui.end_row();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::rewrite_registry;
+
+    #[test]
+    fn rewrite_registry_swaps_known_host() {
+        assert_eq!(
+            rewrite_registry("docker.io/library/nginx:latest", "docker.m.daocloud.io"),
+            "docker.m.daocloud.io/library/nginx:latest"
+        );
+    }
+
+    #[test]
+    fn rewrite_registry_prefixes_bare_image() {
+        // No registry host present → the whole reference is the image path.
+        assert_eq!(
+            rewrite_registry("nginx:latest", "docker.1panel.live"),
+            "docker.1panel.live/nginx:latest"
+        );
+        // A repo namespace without a dotted host is still a path, not a host.
+        assert_eq!(
+            rewrite_registry("whyour/qinglong:latest", "docker.1panel.live"),
+            "docker.1panel.live/whyour/qinglong:latest"
+        );
+    }
+
+    #[test]
+    fn rewrite_registry_fills_sample_when_empty() {
+        assert_eq!(
+            rewrite_registry("   ", "docker.nju.edu.cn"),
+            "docker.nju.edu.cn/library/nginx:latest"
+        );
+    }
+
+    #[test]
+    fn rewrite_registry_handles_host_with_port() {
+        assert_eq!(
+            rewrite_registry("localhost:5000/myimg:1.0", "docker.1ms.run"),
+            "docker.1ms.run/myimg:1.0"
+        );
+    }
 }

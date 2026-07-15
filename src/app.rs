@@ -247,6 +247,10 @@ impl WslcDesktopApp {
             .and_then(|s| eframe::get_value(s, SAVED_COMMANDS_KEY))
             .unwrap_or_else(default_saved_commands);
 
+        // Register a bundled CJK font so Chinese command descriptions and any
+        // other non-Latin UI text render instead of tofu boxes (□).
+        install_fonts(&cc.egui_ctx);
+
         // Slightly larger default text for a desktop dashboard feel.
         let mut style = (*cc.egui_ctx.style()).clone();
         for (_text_style, font_id) in style.text_styles.iter_mut() {
@@ -595,6 +599,34 @@ impl Drop for WslcDesktopApp {
     }
 }
 
+/// Register the bundled Noto Sans SC subset so CJK text renders correctly.
+///
+/// egui's default fonts cover only Latin/symbol glyphs, so Chinese would show
+/// as tofu boxes (□). We append our subset as a fallback on both the
+/// proportional and monospace families: Latin keeps egui's crisp default face,
+/// and any Chinese codepoint falls through to Noto Sans SC.
+fn install_fonts(ctx: &egui::Context) {
+    const CJK_FONT: &[u8] = include_bytes!("../assets/fonts/NotoSansSC-Subset.otf");
+
+    let mut fonts = egui::FontDefinitions::default();
+    fonts.font_data.insert(
+        "noto_sans_sc".to_owned(),
+        egui::FontData::from_static(CJK_FONT),
+    );
+
+    // Append (not prepend) so ASCII still uses egui's default proportional font;
+    // CJK codepoints are picked up from our fallback.
+    for family in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
+        fonts
+            .families
+            .entry(family)
+            .or_default()
+            .push("noto_sans_sc".to_owned());
+    }
+
+    ctx.set_fonts(fonts);
+}
+
 /// Apply the egui dark or light visuals.
 fn apply_theme(ctx: &egui::Context, dark: bool) {
     ctx.set_visuals(if dark {
@@ -652,5 +684,28 @@ pub(crate) fn state_color(state: crate::wslc::ContainerState) -> Color32 {
         Paused => Color32::from_rgb(0xe0, 0xa0, 0x30),  // amber
         Created => Color32::from_rgb(0x4a, 0x9e, 0xff),  // blue
         Unknown(_) => Color32::from_rgb(0xc0, 0x50, 0x50),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use ab_glyph::{Font, FontRef};
+
+    /// The bundled CJK subset must parse with egui's rasterizer (ab_glyph) and
+    /// actually contain the Chinese glyphs we use, otherwise Chinese text would
+    /// silently fall back to tofu boxes at runtime.
+    #[test]
+    fn bundled_cjk_font_has_chinese_glyphs() {
+        const CJK_FONT: &[u8] = include_bytes!("../assets/fonts/NotoSansSC-Subset.otf");
+        let font = FontRef::try_from_slice(CJK_FONT).expect("bundled CJK font should parse");
+        for ch in ['青', '龙', '面', '板', '镜', '像', '容', '器'] {
+            assert_ne!(
+                font.glyph_id(ch).0,
+                0,
+                "font is missing glyph for {ch:?} (.notdef)"
+            );
+        }
+        // ASCII must still be present for command lines / paths.
+        assert_ne!(font.glyph_id('A').0, 0);
     }
 }
