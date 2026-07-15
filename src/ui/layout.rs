@@ -439,16 +439,18 @@ impl WslcDesktopApp {
 
     fn image_table(&mut self, ui: &mut egui::Ui) {
         ui.add_space(4.0);
-        let rows: Vec<(String, String, String, String)> = self
+        let rows: Vec<(String, String, String, String, usize)> = self
             .images
             .iter()
             .filter(|i| self.filter_matches(&[&i.repository, &i.tag]))
             .map(|i| {
+                let in_use = self.containers.iter().filter(|c| c.uses_image(i)).count();
                 (
                     i.reference(),
                     i.short_id(),
                     i.size_display(),
                     relative_time(i.created),
+                    in_use,
                 )
             })
             .collect();
@@ -457,17 +459,17 @@ impl WslcDesktopApp {
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 egui::Grid::new("images_grid")
-                    .num_columns(5)
+                    .num_columns(6)
                     .striped(true)
                     .spacing([12.0, 8.0])
                     .min_col_width(50.0)
                     .show(ui, |ui| {
-                        for h in ["Repository:Tag", "ID", "Size", "Created", "Actions"] {
+                        for h in ["Repository:Tag", "ID", "Size", "Created", "In Use", "Actions"] {
                             ui.label(RichText::new(h).strong());
                         }
                         ui.end_row();
 
-                        for (reference, short_id, size, created) in rows {
+                        for (reference, short_id, size, created, in_use) in rows {
                             let selected = self.selected_image.as_deref() == Some(reference.as_str());
                             if ui
                                 .selectable_label(selected, RichText::new(truncate(&reference, 48)).strong())
@@ -480,6 +482,22 @@ impl WslcDesktopApp {
                             ui.label(RichText::new(short_id).monospace().weak());
                             ui.label(size);
                             ui.label(created);
+                            // In-use status: green count when referenced by ≥1
+                            // container, click to jump to the Containers view
+                            // filtered by this image.
+                            let in_use_resp = if in_use > 0 {
+                                ui.label(
+                                    RichText::new(format!("● {in_use}"))
+                                        .color(egui::Color32::from_rgb(0x3f, 0xb9, 0x50)),
+                                )
+                                .on_hover_text("Click to show containers using this image")
+                            } else {
+                                ui.label(RichText::new("—").weak())
+                            };
+                            if in_use > 0 && in_use_resp.clicked() {
+                                self.filter = reference.clone();
+                                self.section = Section::Containers;
+                            }
                             ui.horizontal(|ui| {
                                 if ui.small_button("▶ Run…").clicked() {
                                     self.run_dialog = Some(RunDialog::with_image(reference.clone()));

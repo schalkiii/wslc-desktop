@@ -2,47 +2,50 @@
 
 # wslc-desktop
 
-> 一个用于管理 **Microsoft WSL Containers**（`wslc.exe`）的原生桌面 GUI —— 纯 Rust 实现，单文件可执行，零运行时依赖。
+> A native desktop GUI for managing **Microsoft WSL Containers** (`wslc.exe`) — written in pure Rust, shipped as a single self-contained executable with zero runtime dependencies.
+>
+> 📖 中文文档 / Chinese version: [README.zh-CN.md](README.zh-CN.md)
 
-`wslc` 是微软于 2026 Build 大会发布、2026-06-29 进入公开预览的容器方案，采用 Docker 兼容语法、底层基于 Moby，但**官方只提供 CLI，没有图形界面**。社区现有的 `lazywslc` / `lazywslcontainer` 也都是终端 TUI。`wslc-desktop` 填补这块空白：把容器、镜像、卷的日常管理搬进一个响应式的窗口应用，并提供实时的 CPU / 内存曲线。
+`wslc` is Microsoft's container solution, announced at Build 2026 and entering public preview on 2026-06-29. It uses Docker-compatible syntax and is built on Moby, but **Microsoft only ships a CLI — there is no GUI**. The community's `lazywslc` / `lazywslcontainer` are terminal TUIs. `wslc-desktop` fills that gap: it brings day-to-day container, image, and volume management into a responsive windowed app, with live CPU / memory charts.
 
 ---
 
-## ✨ 功能特性
+## ✨ Features
 
-| 分类 | 能力 |
+| Area | Capabilities |
 | --- | --- |
-| **容器** | 列表（含已停止、**实时的 CPU / 内存 / 网络 I/O / 块 I/O / PIDs 列**、**点击表头排序**）、启动 / 停止 / 重启 / 强杀、删除（可强制）、批量清理（prune）、端口一键在浏览器打开 |
-| **镜像** | 列表、删除、清理（prune）、从仓库拉取（pull，含超时保护）；Pull 弹窗内置**国内镜像源一键套用**（1Panel / DaoCloud / 毫秒镜像 / 南京大学 / 轩辕镜像 / rat.dev / dockerpull），自动改写注册表前缀 |
-| **卷** | 列表、删除、创建（guest / vhd 驱动）、批量清理（prune） |
-| **网络** | 列表、创建、删除、批量清理（prune）—— 两个 TUI 竞品均无此能力 |
-| **容器创建向导（Run）** | image / name / 端口映射 / 环境变量 / 卷挂载 / 网络 / 工作目录 / 用户 / 主机名 / 内存 / CPU 数 / 入口点 / 命令 / 后台运行 / 自动删除 / 全端口发布；实时生成 `wslc run …` 预览并可复制 |
-| **详情面板** | 日志（**流式跟随 `-f`**、时间戳、重新加载、全量复制）、`inspect` 原始 JSON、选中容器的 CPU% / 内存曲线图、Exec 命令执行（运行中容器） |
-| **常用命令库（Saved Commands）** | 保存并持久化任意 `wslc run …` 命令行，一键运行 / 复制 / 编辑（📝）/ 删除；**点击 Name / Description / Command 表头排序**；首次启动自动从 `wslc-menu.ps1` 导入 **27 个 homelab 容器**预设；支持「恢复预设」按需补齐（不覆盖你的自定义条目） |
-| **实时监控** | 后台 2s 轮询 `wslc stats`，滚动保留采样点绘制趋势图；容器列表直接展示 CPU / Mem / Mem% / Net I/O / Block I/O / PIDs |
-| **体验** | 暗色 / 亮色主题切换（持久化）、**全局 UI 缩放滑块**（顶栏 `× UI`，80%–160% 实时调节，同时缩放布局与字体，默认 110%）、按名称 / 镜像 / 驱动过滤、危险操作二次确认、操作结果 Toast、底部状态栏（计数 + 实时/暂停 + N 秒前刷新）、状态色标、**内置中文字体**（Noto Sans SC 子集，命令描述等中文正常显示，不再出现方框）、**图标 / 符号全内置**（窗口图标 + 动作按钮 / 排序指示符均随字体打包，任何主机都不会出现方框） |
+| **Containers** | List (incl. stopped, with **live CPU / memory / network I/O / block I/O / PIDs columns** and **click-to-sort headers**), start / stop / restart / kill, delete (forceable), bulk prune, one-click open ports in browser |
+| **Images** | List, **per-image `In Use` status column (click to jump to the containers using it)**, delete, prune, pull from registry (with timeout guard); the Pull dialog bundles **one-click China mirror sources** (1Panel / DaoCloud / 毫秒镜像 / Nanjing University / 轩辕镜像 / rat.dev / dockerpull) that rewrite the registry prefix automatically |
+| **Volumes** | List, delete, create (guest / vhd driver), bulk prune |
+| **Networks** | List, create, delete, bulk prune — neither TUI competitor has this |
+| **Run wizard** | image / name / port mappings / env vars / volume mounts / network / workdir / user / hostname / memory / CPU count / entrypoint / command / detached / auto-remove / publish-all-ports; live `wslc run …` preview you can copy |
+| **Detail panel** | Logs (**streaming follow `-f`**, timestamps, reload, copy-all), raw `inspect` JSON, CPU% / memory chart for the selected container, Exec (running containers only) |
+| **Saved Commands** | Save & persist any `wslc run …` command line; one-click run / copy / edit (📝) / delete; **click-to-sort by Name / Description / Command**; seeds **27 homelab container presets** from `wslc-menu.ps1` on first launch; "Restore presets" tops up without overwriting your custom entries |
+| **Live monitoring** | Background 2s `wslc stats` poll, scrolling samples for trend charts; container list shows CPU / Mem / Mem% / Net I/O / Block I/O / PIDs directly |
+| **Experience** | Dark / light theme toggle (persisted), **global UI-scale slider** (top bar `× UI`, 80%–160% live, scales layout + fonts together, defaults to 110%), filter by name / image / driver, danger-action confirmation, result toasts, bottom status bar (counts + live/paused + "updated Ns ago"), state color coding, **bundled CJK font** (Noto Sans SC subset so Chinese command descriptions render instead of tofu boxes), **all icons / symbols bundled** (window icon + action buttons + sort arrows ship with the font, so nothing boxes on any host) |
 
-> 状态映射（与 `lazywslc`/`lazywslcontainer` 交叉核对并在本机 wslc 2.9.3.0 上验证）：`1=Created`、`2=Running`、`3=Exited`、`4=Paused`。
-> **已知边界**：wslc 当前不提供 `pause`/`rename`、CVE/SBOM 扫描、文件拖拽挂载、Compose —— 这些能力在本工具中不做假命令模拟。
+> State mapping (cross-checked against `lazywslc`/`lazywslcontainer` and verified on local wslc 2.9.3.0): `1=Created`, `2=Running`, `3=Exited`, `4=Paused`.
+> **Known limits**: wslc currently offers no `pause`/`rename`, CVE/SBOM scanning, drag-and-drop volume mounts, or Compose — this tool does not fake those commands.
 
 ---
 
-## 🏗️ 架构
+## 🏗️ Architecture
 
 ```
 ┌─────────────────────────────────────────────┐
-│                UI 层 (egui/eframe)            │
-│  top_bar · sidebar · 资源表 · 详情面板 · 弹窗   │
+│                UI layer (egui/eframe)         │
+│  top_bar · sidebar · resource tables · detail · dialogs │
 └───────────────▲───────────────┬──────────────┘
                 │ WorkerEvent    │ UiRequest
-        (mpsc channel，非阻塞)   │
+        (mpsc channel, non-blocking)            │
 ┌───────────────┴───────────────▼──────────────┐
-│           后台 worker 线程 (poller.rs)          │
-│   周期轮询 + 处理 UI 请求，全部 wslc 调用在此    │
+│            background worker thread (poller.rs)│
+│   periodic poll + UI-request handling; all wslc
+│   calls live here                             │
 └───────────────────────┬──────────────────────┘
                         │
 ┌───────────────────────▼──────────────────────┐
-│      wslc 后端 (src/wslc/, 与框架无关)          │
+│      wslc backend (src/wslc/, GUI-agnostic)    │
 │  client(std::process) · commands · types(serde)│
 └───────────────────────┬──────────────────────┘
                         │  wslc.exe --format json
@@ -50,34 +53,34 @@
                   Microsoft WSL Containers
 ```
 
-**关键设计：**
-- **UI 永不阻塞**：所有 `wslc` 子进程调用都在后台线程执行，通过 `std::sync::mpsc` 与 UI 通信；不使用 tokio。
-- **不闪控制台**：Windows 下对每个子进程设置 `CREATE_NO_WINDOW`（`0x08000000`）。
-- **超时可控**：每条命令带超时（默认 20s），超时即 kill 并返回错误，避免卡死。
-- **后端可复用**：`src/wslc/` 完全不依赖 egui，可被 TUI / CLI / 测试独立复用。
+**Key design choices:**
+- **The UI never blocks**: every `wslc` subprocess call runs on a background thread and talks to the UI over `std::sync::mpsc`; no tokio.
+- **No console flash**: each subprocess is spawned with `CREATE_NO_WINDOW` (`0x08000000`) on Windows.
+- **Bounded timeouts**: every command has a timeout (default 20s); on timeout it is killed and an error returned, so the UI can't hang.
+- **Reusable backend**: `src/wslc/` has zero dependency on egui and can be reused by a TUI / CLI / tests.
 
 ---
 
-## 🧰 技术栈
+## 🧰 Tech stack
 
-| 组件 | 选型 | 说明 |
+| Component | Choice | Notes |
 | --- | --- | --- |
-| GUI 框架 | **egui / eframe 0.29** | 即时模式，适合实时表格与曲线；产物为单个自包含 `.exe`，无需 WebView2 / Node |
-| 绘图 | egui_plot 0.29 | CPU / 内存趋势图 |
-| 序列化 | serde / serde_json | 解析 `wslc --format json` |
-| 错误处理 | anyhow | |
-| 时间 | chrono | 相对时间显示 |
+| GUI framework | **egui / eframe 0.29** | Immediate mode; ideal for live tables & charts; produces a single self-contained `.exe`, no WebView2 / Node |
+| Plotting | egui_plot 0.29 | CPU / memory trend charts |
+| Serialization | serde / serde_json | Parse `wslc --format json` |
+| Error handling | anyhow | |
+| Time | chrono | Relative-time display |
 
-> 为何不用 Tauri：Tauri 需要 WebView2 运行时 + 前端工具链，产物更重、依赖更多。本机未检测到 WebView2，且用户偏好「自包含、无外部依赖」，故选 egui。Tauri 作为未来重 UI 需求的备选。
+> Why not Tauri: Tauri needs the WebView2 runtime + a front-end toolchain, making a heavier artifact with more dependencies. WebView2 was not detected on the dev machine, and the user prefers "self-contained, no external deps", so egui was chosen. Tauri remains a candidate for heavier future UI needs.
 
 ---
 
-## 📦 环境要求
+## 📦 Requirements
 
-- **Windows**，已安装并可用的 `wslc.exe`（本项目针对 **wslc 2.9.3.0** 验证）
-- 构建需要 **Rust**（stable，`edition 2021`；开发时使用 rustc 1.95 / cargo 1.96）
+- **Windows** with a working `wslc.exe` (validated against **wslc 2.9.3.0**)
+- Building needs **Rust** (stable, `edition 2021`; developed on rustc 1.95 / cargo 1.96)
 
-验证 wslc 是否可用：
+Verify wslc is available:
 
 ```powershell
 wslc version
@@ -86,79 +89,94 @@ wslc list --all --format json
 
 ---
 
-## 🚀 构建与运行
+## 🚀 Build & run
 
 ```bash
-# 开发运行
+# Run in development
 cargo run
 
-# 发布构建（strip + thin-LTO，产出精简单文件）
+# Release build (strip + thin-LTO, minimal single file)
 cargo build --release
-# 产物：target/release/wslc-desktop.exe
+# Output: target/release/wslc-desktop.exe
 ```
 
-> **国内网络提示**：官方 crates.io CDN 在部分网络下极慢。仓库已内置 `.cargo/config.toml`，将源替换为 **rsproxy.cn** 镜像（sparse 索引 + crate 下载）。如你的环境能直连官方源，删除该文件即可。
+> **Domestic network note**: the official crates.io CDN can be very slow on some networks. The repo ships a `.cargo/config.toml` that points crates.io at the **rsproxy.cn** mirror (sparse index + crate download). Delete that file if your environment can reach the official source directly.
+>
+> **Release builds (CI)**: pushing a `v*` tag triggers `.github/workflows/release.yml`, which compiles on `windows-latest` using upstream crates.io and publishes `wslc-desktop.exe` as a Release asset.
 
 ---
 
-## 🗂️ 项目结构
+## 🗂️ Project layout
 
 ```
 wslc-desktop/
 ├── Cargo.toml
-├── build.rs                    # Windows 可执行文件图标嵌入（winresource）
-├── .cargo/config.toml          # rsproxy 镜像 + 网络容错
-├── assets/                     # 应用图标 + 内置字体
-│   ├── icon.ico                #   可执行文件图标（winresource 嵌入）
-│   ├── icon_rgba.bin           #   运行时窗口图标（eframe 直接加载，无解码依赖）
-│   ├── fonts/NotoSansSC-Subset.otf  # 中文字体子集（GB2312，~1.8 MB）
-│   ├── make_icon.py            #   图标生成脚本（Pillow）
-│   └── make_font.py            #   字体子集化脚本（fontTools）
+├── build.rs                    # Embed Windows exe icon (winresource)
+├── .cargo/config.toml          # rsproxy mirror + network resilience
+├── .github/workflows/release.yml  # tag-triggered: build & publish Release asset
+├── assets/                     # app icon + bundled font
+│   ├── icon.ico                #   exe icon (winresource-embedded)
+│   ├── icon_rgba.bin           #   runtime window icon (loaded by eframe, no decode dep)
+│   ├── fonts/NotoSansSC-Subset.otf  # CJK font subset (GB2312, ~1.8 MB)
+│   ├── make_icon.py            #   icon generation script (Pillow)
+│   └── make_font.py            #   font subsetting script (fontTools)
 ├── docs/
-│   └── 竞品拆解与技术方案.md      # 竞品分析 + 架构/技术选型设计文档
+│   └── 竞品拆解与技术方案.md      # competitor teardown + architecture/tech-choice design doc (zh)
 ├── src/
-│   ├── main.rs                 # eframe 入口
-│   ├── app.rs                  # 应用状态、事件循环、顶层布局
-│   ├── poller.rs               # 后台 worker 线程（轮询 + 请求处理）
-│   ├── wslc/                   # 与框架无关的 wslc 后端
-│   │   ├── client.rs           #   子进程执行、超时、去版权头
-│   │   ├── commands.rs         #   各 wslc 命令封装
-│   │   ├── types.rs            #   serde 数据模型 + 状态枚举 + 单位换算
+│   ├── main.rs                 # eframe entry point
+│   ├── app.rs                  # app state, event loop, top-level layout
+│   ├── poller.rs               # background worker thread (poll + request handling)
+│   ├── wslc/                   # GUI-agnostic wslc backend
+│   │   ├── client.rs           #   subprocess exec, timeout, header stripping
+│   │   ├── commands.rs         #   wslc command wrappers
+│   │   ├── types.rs            #   serde data models + state enum + unit conversion
 │   │   └── mod.rs
-│   └── ui/                     # egui 渲染（均为 WslcDesktopApp 的 impl）
-│       ├── layout.rs           #   顶栏 / 侧边栏 / 资源表 / 常用命令库
-│       ├── detail.rs           #   日志 / 统计 / inspect 详情面板
-│       └── dialogs.rs          #   确认框 / run / 命令编辑 对话框 / Toast
-└── wslc-menu.ps1               # 常用命令库预设来源：原有 PowerShell 菜单脚本
+│   └── ui/                     # egui rendering (all WslcDesktopApp impls)
+│       ├── layout.rs           #   top bar / sidebar / resource tables / saved commands
+│       ├── detail.rs           #   logs / stats / inspect detail panel
+│       └── dialogs.rs          #   confirm / run / command-edit dialogs / Toast
+└── wslc-menu.ps1               # saved-commands preset source: the original PowerShell menu script
 ```
 
 ---
 
-## 🆚 竞品对比
+## 🆚 Competitors
 
-| 项目 | 语言 | 形态 | GUI | 实时监控 |
+| Project | Language | Form | GUI | Live monitoring |
 | --- | --- | --- | --- | --- |
-| **wslc-desktop** | Rust | 原生窗口 | ✅ | ✅ CPU/内存曲线 |
-| lazywslc | Rust | 终端 TUI | ❌ | 部分 |
-| lazywslcontainer | Go (bubbletea) | 终端 TUI | ❌ | 部分 |
-| Docker Desktop | 多语言 | Electron | ✅ | ✅（但不管 wslc） |
+| **wslc-desktop** | Rust | Native window | ✅ | ✅ CPU/memory charts |
+| lazywslc | Rust | Terminal TUI | ❌ | Partial |
+| lazywslcontainer | Go (bubbletea) | Terminal TUI | ❌ | Partial |
+| Docker Desktop | Multi | Electron | ✅ | ✅ (but not for wslc) |
 
-详见 [`docs/竞品拆解与技术方案.md`](docs/竞品拆解与技术方案.md)。
-
----
-
-## 🛣️ 路线图
-
-- **M1（已发布，2026-07-15）**：容器/镜像/卷/网络的增删查改、生命周期操作、容器创建向导、实时 stats 曲线、日志流式跟随、inspect、Exec、暗色主题、端口一键打开、**常用命令库（27 预设 + 持久化 + 运行/编辑）**、零 warning 编译（`cargo clippy --all-targets` 亦无告警）。
-- **M2（进行中）**：日志正则搜索 / 高亮、命令库分组 / 导入导出、MSI 打包、i18n。
-  - ✅ *镜像源回退快捷项* 已在 Pull 弹窗落地（国内镜像一键套用）。
-  - ✅ *中文字体内置* 已完成（Noto Sans SC 子集，解决命令描述方框问题）。
-  - ✅ *表头点击列排序* 已完成：容器表支持按 Name / Image / State / CPU / Mem / Mem% / Net I/O / Block I/O / PIDs / Created 点击排序（再点切换升/降序）；命令库表支持按 Name / Description / Command 排序。
-  - ✅ *图标与符号全内置*：窗口图标（`icon.ico` + 运行时 `icon_rgba.bin`）与所有动作按钮、排序箭头（▲▼）一并随中文字体打包，杜绝任何主机上的方框乱码。
-  - ✅ *全局 UI 缩放*：顶栏 `× UI` 滑块（80%–160%，默认 110%）实时缩放布局与字体，并持久化。
+See [`docs/竞品拆解与技术方案.md`](docs/竞品拆解与技术方案.md) for the full teardown.
 
 ---
 
-## 📄 许可
+## ✅ Milestones
+
+- **M1 (2026-07-15)**: CRUD for containers / images / volumes / networks, lifecycle ops, run wizard, live stats charts, streaming logs, inspect, Exec, dark theme, one-click open ports, **Saved Commands (27 presets + persistence + run/edit)**, warning-free build (`cargo clippy --all-targets` clean).
+- **M2 (2026-07-16)**:
+  - Image `In Use` status column (registry / namespace-tolerant match; click to jump to containers using the image).
+  - One-click China mirror sources in the Pull dialog.
+  - Chinese command descriptions render correctly (bundled Noto Sans SC subset, no tofu).
+  - **Click-to-sort headers** on the container table and the Saved Commands table (click again to toggle asc/desc).
+  - Window icon + action buttons + sort arrows all bundled with the font, so nothing boxes on any host.
+  - Top-bar `× UI` slider for **global UI scaling** (80%–160%, defaults to 110%), scaling layout + fonts together and persisting.
+
+---
+
+## 🛣️ Roadmap
+
+- Log regex search / highlight (front-end text match; wslc has no stream filter).
+- Saved-Commands grouping / tags / import-export (currently a flat list).
+- MSI packaging (cargo-wix, see lazywslc `wix/`).
+- i18n (Chinese / English UI).
+- Auto-update check (compare against the GitHub Release).
+- Deeper visual editing of ports / volumes / networks.
+
+---
+
+## 📄 License
 
 MIT

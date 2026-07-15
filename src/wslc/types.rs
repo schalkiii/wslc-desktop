@@ -129,6 +129,39 @@ impl Container {
     pub fn short_id(&self) -> String {
         self.id.chars().take(12).collect()
     }
+
+    /// Whether this container was created from `image`, matching registry- and
+    /// namespace-tolerantly so `docker.io/library/nginx:latest` ≡ `nginx:latest`.
+    pub fn uses_image(&self, image: &Image) -> bool {
+        normalize_image_ref(&self.image) == normalize_image_ref(&image.reference())
+    }
+}
+
+/// Normalize an image reference for matching: strip a scheme and registry host,
+/// drop Docker's implicit `library/` namespace, and default a missing tag to
+/// `latest`, so `docker.io/library/nginx:latest`, `nginx:latest` and `nginx`
+/// all collapse to the same bare `repo:tag`.
+fn normalize_image_ref(reference: &str) -> String {
+    let mut s = reference.trim().to_string();
+    for scheme in ["https://", "http://"] {
+        if let Some(rest) = s.strip_prefix(scheme) {
+            s = rest.to_string();
+        }
+    }
+    if let Some(slash) = s.find('/') {
+        let head = &s[..slash];
+        let is_host = head.contains('.') || head.contains(':') || head == "localhost";
+        if is_host {
+            s = s[slash + 1..].to_string();
+        }
+    }
+    if let Some(rest) = s.strip_prefix("library/") {
+        s = rest.to_string();
+    }
+    if !s.contains(':') {
+        s = format!("{s}:latest");
+    }
+    s
 }
 
 /// An image row from `wslc images --format json`.
@@ -362,5 +395,42 @@ mod tests {
         assert_eq!(stat.cpu_percent(), 0.0);
         assert_eq!(stat.mem_used_bytes(), 0.0);
         assert_eq!(stat.net_rx_bytes(), 0.0);
+    }
+
+    /// `uses_image` must treat registry- and namespace-variant references as the
+    /// same image, so the "In Use" column is accurate across wslc output styles.
+    #[test]
+    fn container_uses_image_is_registry_tolerant() {
+        let image = Image {
+            id: "sha256:deadbeef".into(),
+            repository: "nginx".into(),
+            tag: "latest".into(),
+            size: 0,
+            created: 0,
+        };
+
+        let mk = |image: &str| Container {
+            id: "id".into(),
+            name: "c".into(),
+            image: image.into(),
+            state_code: 2,
+            created_at: 0,
+            state_changed_at: 0,
+            ports: vec![],
+        };
+
+        // All of these denote the same image as `nginx:latest`.
+        for container_image in [
+            "nginx",
+            "nginx:latest",
+            "docker.io/library/nginx:latest",
+            "https://registry-1.docker.io/library/nginx:latest",
+        ] {
+            assert!(mk(container_image).uses_image(&image), "expected {container_image:?} to match");
+        }
+
+        // A different image must not match.
+        assert!(!mk("redis:latest").uses_image(&image));
+        assert!(!mk("nginx:1.25").uses_image(&image));
     }
 }
