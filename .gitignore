@@ -1,0 +1,19 @@
+# Rust build artifacts
+/target/
+
+# Generated icon intermediates (regenerate via assets/make_icon.py).
+# The committed icon.ico / icon.png / icon_rgba.bin ARE tracked (needed to build).
+assets/*.tmp
+
+# Editor / OS cruft
+*.swp
+*~
+.DS_Store
+Thumbs.db
+
+# Project-local WorkBuddy workspace state (memory, trash, etc.)
+/.workbuddy/
+
+# Local extraction / scratch
+/_extract/
+*.tgz

@@ -1,0 +1,301 @@
+//! Data structures deserialized from `wslc --format json` output.
+//!
+//! All field names use `PascalCase` to match wslc's JSON exactly (verified
+//! against wslc 2.9.3.0 on real containers). Every field is tolerant to
+//! omission via `#[serde(default)]` so schema drift in the preview build does
+//! not break parsing.
+
+use serde::Deserialize;
+
+/// Lifecycle state of a container, as reported by `wslc list`'s numeric `State`.
+///
+/// Mapping confirmed empirically on wslc 2.9.3.0 (2 = Running, 3 = Exited) and
+/// cross-checked with the lazywslc / lazywslcontainer sources for the rest.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ContainerState {
+    Created,
+    Running,
+    Exited,
+    Paused,
+    Unknown(u8),
+}
+
+impl ContainerState {
+    pub fn from_code(code: u8) -> Self {
+        match code {
+            1 => ContainerState::Created,
+            2 => ContainerState::Running,
+            3 => ContainerState::Exited,
+            4 => ContainerState::Paused,
+            other => ContainerState::Unknown(other),
+        }
+    }
+
+    pub fn label(self) -> String {
+        match self {
+            ContainerState::Created => "created".to_string(),
+            ContainerState::Running => "running".to_string(),
+            ContainerState::Exited => "exited".to_string(),
+            ContainerState::Paused => "paused".to_string(),
+            ContainerState::Unknown(code) => format!("unknown({code})"),
+        }
+    }
+
+    pub fn is_running(self) -> bool {
+        matches!(self, ContainerState::Running)
+    }
+}
+
+/// A published port mapping from `Ports[]` in `wslc list`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct PortMapping {
+    #[serde(default, rename = "BindingAddress")]
+    pub binding_address: String,
+    #[serde(default, rename = "ContainerPort")]
+    pub container_port: u16,
+    #[serde(default, rename = "HostPort")]
+    pub host_port: u16,
+    /// IP protocol number: 6 = tcp, 17 = udp.
+    #[serde(default, rename = "Protocol")]
+    pub protocol: u16,
+}
+
+impl PortMapping {
+    pub fn protocol_label(&self) -> &'static str {
+        match self.protocol {
+            17 => "udp",
+            _ => "tcp",
+        }
+    }
+
+    /// e.g. `127.0.0.1:8003->8080/tcp`
+    pub fn display(&self) -> String {
+        let addr = if self.binding_address.is_empty() {
+            "0.0.0.0"
+        } else {
+            &self.binding_address
+        };
+        format!(
+            "{addr}:{}->{}/{}",
+            self.host_port,
+            self.container_port,
+            self.protocol_label()
+        )
+    }
+}
+
+/// A container row from `wslc list --all --format json`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct Container {
+    #[serde(default, rename = "Id")]
+    pub id: String,
+    #[serde(default, rename = "Name")]
+    pub name: String,
+    #[serde(default, rename = "Image")]
+    pub image: String,
+    #[serde(default, rename = "State")]
+    pub state_code: u8,
+    #[serde(default, rename = "CreatedAt")]
+    pub created_at: i64,
+    #[serde(default, rename = "StateChangedAt")]
+    pub state_changed_at: i64,
+    #[serde(default, rename = "Ports")]
+    pub ports: Vec<PortMapping>,
+}
+
+impl Container {
+    pub fn state(&self) -> ContainerState {
+        ContainerState::from_code(self.state_code)
+    }
+
+    /// Prefer the human name; fall back to a short id.
+    pub fn display_name(&self) -> String {
+        if self.name.is_empty() {
+            self.short_id()
+        } else {
+            self.name.clone()
+        }
+    }
+
+    /// A wslc id or name usable as a command target.
+    pub fn target(&self) -> String {
+        if self.name.is_empty() {
+            self.id.clone()
+        } else {
+            self.name.clone()
+        }
+    }
+
+    pub fn short_id(&self) -> String {
+        self.id.chars().take(12).collect()
+    }
+}
+
+/// An image row from `wslc images --format json`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct Image {
+    #[serde(default, rename = "Id")]
+    pub id: String,
+    #[serde(default, rename = "Repository")]
+    pub repository: String,
+    #[serde(default, rename = "Tag")]
+    pub tag: String,
+    #[serde(default, rename = "Size")]
+    pub size: u64,
+    #[serde(default, rename = "Created")]
+    pub created: i64,
+}
+
+impl Image {
+    /// e.g. `ghcr.io/schalkiii/reseedhound:latest`
+    pub fn reference(&self) -> String {
+        if self.repository.is_empty() {
+            return self.short_id();
+        }
+        let tag = if self.tag.is_empty() { "latest" } else { &self.tag };
+        format!("{}:{}", self.repository, tag)
+    }
+
+    pub fn short_id(&self) -> String {
+        // Drop a leading `sha256:` if present, then take 12 hex chars.
+        let hex = self.id.strip_prefix("sha256:").unwrap_or(&self.id);
+        hex.chars().take(12).collect()
+    }
+
+    pub fn size_display(&self) -> String {
+        human_size(self.size)
+    }
+}
+
+/// A volume row from `wslc volume list --format json`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct Volume {
+    #[serde(default, rename = "Name")]
+    pub name: String,
+    #[serde(default, rename = "Driver")]
+    pub driver: String,
+}
+
+/// A network row from `wslc network list --format json`.
+///
+/// The preview build currently reports an empty list; fields are modelled
+/// defensively (all optional) with common aliases so parsing survives whatever
+/// casing wslc settles on.
+#[derive(Debug, Clone, Deserialize)]
+pub struct Network {
+    #[serde(default, alias = "Name", alias = "name")]
+    pub name: String,
+    #[serde(default, alias = "Id", alias = "ID", alias = "id")]
+    pub id: String,
+    #[serde(default, alias = "Driver", alias = "driver")]
+    pub driver: String,
+    #[serde(default, alias = "Scope", alias = "scope")]
+    pub scope: String,
+}
+
+impl Network {
+    /// Prefer the human name; fall back to a short id.
+    pub fn display_name(&self) -> String {
+        if self.name.is_empty() {
+            self.short_id()
+        } else {
+            self.name.clone()
+        }
+    }
+
+    pub fn short_id(&self) -> String {
+        let hex = self.id.strip_prefix("sha256:").unwrap_or(&self.id);
+        hex.chars().take(12).collect()
+    }
+}
+
+/// A live-stats row from `wslc stats --format json`. Numeric fields arrive as
+/// human strings (e.g. `"0.25%"`, `"63.16 MiB / 15.48 GiB"`) and are parsed
+/// lazily via the helper accessors.
+#[derive(Debug, Clone, Deserialize)]
+pub struct Stat {
+    #[serde(default, rename = "ID")]
+    pub id: String,
+    #[allow(dead_code)] // Retained for debug / inspection; keyed by ID in UI.
+    #[serde(default, rename = "Name")]
+    pub name: String,
+    #[serde(default, rename = "CPUPerc")]
+    pub cpu_perc: String,
+    #[serde(default, rename = "MemUsage")]
+    pub mem_usage: String,
+    #[serde(default, rename = "MemPerc")]
+    pub mem_perc: String,
+    #[serde(default, rename = "NetIO")]
+    pub net_io: String,
+    #[serde(default, rename = "BlockIO")]
+    pub block_io: String,
+    #[serde(default, rename = "PIDs")]
+    pub pids: u32,
+}
+
+impl Stat {
+    /// Parse `"0.25%"` -> 0.25.
+    pub fn cpu_percent(&self) -> f64 {
+        self.cpu_perc.trim().trim_end_matches('%').parse().unwrap_or(0.0)
+    }
+
+    /// Parse the used side of `"63.16 MiB / 15.48 GiB"` -> bytes.
+    pub fn mem_used_bytes(&self) -> f64 {
+        let used = self.mem_usage.split('/').next().unwrap_or("").trim();
+        parse_size_to_bytes(used)
+    }
+}
+
+/// Format a byte count as a human-readable binary size.
+pub fn human_size(bytes: u64) -> String {
+    const UNITS: [&str; 5] = ["B", "KiB", "MiB", "GiB", "TiB"];
+    let mut value = bytes as f64;
+    let mut unit = 0;
+    while value >= 1024.0 && unit < UNITS.len() - 1 {
+        value /= 1024.0;
+        unit += 1;
+    }
+    if unit == 0 {
+        format!("{} {}", bytes, UNITS[0])
+    } else {
+        format!("{value:.2} {}", UNITS[unit])
+    }
+}
+
+/// Parse strings like `"63.16 MiB"` / `"1.32 KiB"` / `"0 B"` into bytes.
+fn parse_size_to_bytes(text: &str) -> f64 {
+    let mut parts = text.split_whitespace();
+    let number: f64 = parts.next().and_then(|n| n.parse().ok()).unwrap_or(0.0);
+    let unit = parts.next().unwrap_or("B").to_ascii_uppercase();
+    let factor = match unit.as_str() {
+        "B" => 1.0,
+        "KIB" | "KB" => 1024.0,
+        "MIB" | "MB" => 1024.0 * 1024.0,
+        "GIB" | "GB" => 1024.0 * 1024.0 * 1024.0,
+        "TIB" | "TB" => 1024.0 * 1024.0 * 1024.0 * 1024.0,
+        _ => 1.0,
+    };
+    number * factor
+}
+
+/// Render a unix timestamp as a compact "time ago" string.
+pub fn relative_time(unix_secs: i64) -> String {
+    if unix_secs <= 0 {
+        return "-".to_string();
+    }
+    let now = chrono::Utc::now().timestamp();
+    let delta = now - unix_secs;
+    if delta < 0 {
+        return "just now".to_string();
+    }
+    let (value, unit) = if delta < 60 {
+        (delta, "s")
+    } else if delta < 3600 {
+        (delta / 60, "m")
+    } else if delta < 86_400 {
+        (delta / 3600, "h")
+    } else {
+        (delta / 86_400, "d")
+    };
+    format!("{value}{unit} ago")
+}

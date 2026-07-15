@@ -1,0 +1,19 @@
+# Use the domestic rsproxy.cn mirror for crates.io. The official CDN is too slow
+# through the local proxy in this environment; rsproxy is reachable directly and
+# mirrors both the sparse index and crate downloads.
+[source.crates-io]
+replace-with = "rsproxy-sparse"
+
+[source.rsproxy-sparse]
+registry = "sparse+https://rsproxy.cn/index/"
+
+[registries.rsproxy]
+index = "sparse+https://rsproxy.cn/index/"
+
+# Be tolerant of transient slow links.
+[net]
+retry = 5
+
+[http]
+timeout = 60
+low-speed-limit = 1
