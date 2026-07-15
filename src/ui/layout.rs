@@ -30,6 +30,19 @@ impl WslcDesktopApp {
                         self.toggle_theme(ctx);
                     }
 
+                    // Global UI scale (scales layout + fonts together).
+                    ui.scope(|ui| {
+                        ui.set_max_width(140.0);
+                        ui.add(
+                            egui::Slider::new(&mut self.settings.ui_scale, 0.8..=1.6)
+                                .step_by(0.05)
+                                .fixed_decimals(0)
+                                .suffix("× UI")
+                                .min_decimals(1),
+                        )
+                        .on_hover_text("Global UI scale — affects layout and font size");
+                    });
+
                     // Auto-refresh toggle.
                     if ui
                         .selectable_label(self.settings.auto_refresh, "⟲ Auto")

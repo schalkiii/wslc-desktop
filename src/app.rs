@@ -25,6 +25,16 @@ pub(crate) struct Settings {
     pub auto_refresh: bool,
     pub log_timestamps: bool,
     pub log_follow: bool,
+    /// Global UI scaling factor (1.0 = 100%). Applied via
+    /// `Context::set_pixels_per_point` so it scales both layout and fonts.
+    #[serde(default = "default_ui_scale")]
+    pub ui_scale: f32,
+}
+
+/// Default UI scale: 110% so the whole interface and fonts read a bit larger
+/// out of the box (overridable in the top bar; persisted once changed).
+fn default_ui_scale() -> f32 {
+    1.1
 }
 
 impl Default for Settings {
@@ -34,6 +44,7 @@ impl Default for Settings {
             auto_refresh: true,
             log_timestamps: false,
             log_follow: true,
+            ui_scale: default_ui_scale(),
         }
     }
 }
@@ -592,6 +603,9 @@ impl WslcDesktopApp {
 impl eframe::App for WslcDesktopApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.drain_events();
+
+        // Apply the global UI scale (covers layout + fonts via eframe).
+        ctx.set_pixels_per_point(self.settings.ui_scale);
 
         // Global keyboard shortcuts.
         if ctx.input(|i| i.key_pressed(egui::Key::F5)) {
