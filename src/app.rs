@@ -192,6 +192,31 @@ pub(crate) struct Toast {
     pub created: Instant,
 }
 
+/// Which column the container table is currently sorted by.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum ContainerSortKey {
+    #[default]
+    Name,
+    Image,
+    State,
+    Cpu,
+    Mem,
+    MemPerc,
+    NetIo,
+    BlockIo,
+    Pids,
+    Created,
+}
+
+/// Which column the saved-commands table is currently sorted by.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum CommandSortKey {
+    #[default]
+    Name,
+    Description,
+    Command,
+}
+
 pub struct WslcDesktopApp {
     pub(crate) worker: WorkerHandle,
     pub(crate) version: Option<String>,
@@ -220,6 +245,12 @@ pub struct WslcDesktopApp {
     pub(crate) filter: String,
     pub(crate) settings: Settings,
     pub(crate) saved_commands: Vec<SavedCommand>,
+
+    // Table sorting state (M2: clickable column headers).
+    pub(crate) container_sort_key: ContainerSortKey,
+    pub(crate) container_sort_asc: bool,
+    pub(crate) command_sort_key: CommandSortKey,
+    pub(crate) command_sort_asc: bool,
 
     pub(crate) confirm: Option<ConfirmState>,
     pub(crate) run_dialog: Option<RunDialog>,
@@ -286,6 +317,10 @@ impl WslcDesktopApp {
             filter: String::new(),
             settings,
             saved_commands,
+            container_sort_key: ContainerSortKey::default(),
+            container_sort_asc: true,
+            command_sort_key: CommandSortKey::default(),
+            command_sort_asc: true,
             confirm: None,
             run_dialog: None,
             volume_dialog: None,
@@ -707,5 +742,16 @@ mod tests {
         }
         // ASCII must still be present for command lines / paths.
         assert_ne!(font.glyph_id('A').0, 0);
+
+        // Geometric-shape sort arrows + the start/run glyph are bundled in the
+        // CJK font itself (Noto Sans SC), so they must be present; otherwise
+        // they would fall back to tofu on a host lacking the emoji font.
+        for ch in ['▲', '▼', '▶'] {
+            assert_ne!(
+                font.glyph_id(ch).0,
+                0,
+                "font is missing UI glyph {ch:?} (.notdef)"
+            );
+        }
     }
 }

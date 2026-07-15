@@ -7,8 +7,8 @@ prompt mark ">_". Reads as a modern GUI-for-a-CLI tool and stays legible down
 to 16x16.
 
 Outputs (into this directory):
-  icon.png    256x256 window icon consumed by eframe at runtime
   icon@512.png 512x512 for the README / release page
+  icon_rgba.bin raw 256x256 RGBA bytes for the eframe window icon (no decode dep)
   icon.ico    multi-size Windows icon (256/128/64/48/32/16) embedded in the exe
 """
 from __future__ import annotations
@@ -104,7 +104,6 @@ def build_tile(px: int) -> Image.Image:
 
 def main() -> None:
     icon256 = build_tile(256)
-    icon256.save(os.path.join(HERE, "icon.png"))
     build_tile(512).save(os.path.join(HERE, "icon@512.png"))
 
     # Raw 256x256 RGBA bytes for the eframe window icon (no decode dependency).
@@ -119,7 +118,7 @@ def main() -> None:
         sizes=[(s, s) for s in sizes],
         append_images=imgs[1:],
     )
-    print("wrote icon.png, icon@512.png, icon.ico")
+    print("wrote icon@512.png, icon_rgba.bin, icon.ico")
 
 
 if __name__ == "__main__":

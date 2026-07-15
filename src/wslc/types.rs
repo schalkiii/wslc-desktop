@@ -212,7 +212,7 @@ impl Network {
 /// A live-stats row from `wslc stats --format json`. Numeric fields arrive as
 /// human strings (e.g. `"0.25%"`, `"63.16 MiB / 15.48 GiB"`) and are parsed
 /// lazily via the helper accessors.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct Stat {
     #[serde(default, rename = "ID")]
     pub id: String,
@@ -244,6 +244,27 @@ impl Stat {
         let used = self.mem_usage.split('/').next().unwrap_or("").trim();
         parse_size_to_bytes(used)
     }
+
+    /// Parse `"63.16%"` -> 63.16 (used for header sorting).
+    pub fn mem_percent(&self) -> f64 {
+        self.mem_perc
+            .trim()
+            .trim_end_matches('%')
+            .parse()
+            .unwrap_or(0.0)
+    }
+
+    /// Parse the received side of `"8.5MB / 2.1MB"` -> bytes (for sorting).
+    pub fn net_rx_bytes(&self) -> f64 {
+        let rx = self.net_io.split('/').next().unwrap_or("").trim();
+        parse_size_to_bytes(rx)
+    }
+
+    /// Parse the read side of `"12.3MB / 4.5MB"` -> bytes (for sorting).
+    pub fn block_rx_bytes(&self) -> f64 {
+        let rx = self.block_io.split('/').next().unwrap_or("").trim();
+        parse_size_to_bytes(rx)
+    }
 }
 
 /// Format a byte count as a human-readable binary size.
@@ -262,11 +283,19 @@ pub fn human_size(bytes: u64) -> String {
     }
 }
 
-/// Parse strings like `"63.16 MiB"` / `"1.32 KiB"` / `"0 B"` into bytes.
+/// Parse strings like `"63.16 MiB"`, `"8.50MB"` (no space), or `"0 B"` into bytes.
+///
+/// Tolerates the number and unit being concatenated (which is how `wslc stats`
+/// emits `NetIO` / `BlockIO`, e.g. `"8.50MB / 2.10MB"`) by splitting on the
+/// first non-numeric character rather than on whitespace.
 fn parse_size_to_bytes(text: &str) -> f64 {
-    let mut parts = text.split_whitespace();
-    let number: f64 = parts.next().and_then(|n| n.parse().ok()).unwrap_or(0.0);
-    let unit = parts.next().unwrap_or("B").to_ascii_uppercase();
+    let trimmed = text.trim();
+    let split = trimmed
+        .find(|c: char| !c.is_ascii_digit() && c != '.' && c != '+' && c != '-')
+        .unwrap_or(trimmed.len());
+    let (num_str, unit_str) = trimmed.split_at(split);
+    let number: f64 = num_str.trim().parse().unwrap_or(0.0);
+    let unit = unit_str.trim().to_ascii_uppercase();
     let factor = match unit.as_str() {
         "B" => 1.0,
         "KIB" | "KB" => 1024.0,
@@ -298,4 +327,40 @@ pub fn relative_time(unix_secs: i64) -> String {
         (delta / 86_400, "d")
     };
     format!("{value}{unit} ago")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The numeric accessors back the clickable column sorting, so they must
+    /// parse the display strings `wslc stats` actually emits.
+    #[test]
+    fn stat_numeric_accessors() {
+        let stat = Stat {
+            id: "abc".into(),
+            name: "demo".into(),
+            cpu_perc: "12.50%".into(),
+            mem_usage: "63.16 MiB / 15.48 GiB".into(),
+            mem_perc: "34.20%".into(),
+            net_io: "8.50MB / 2.10MB".into(),
+            block_io: "12.30MB / 4.50MB".into(),
+            pids: 7,
+        };
+        assert_eq!(stat.cpu_percent(), 12.5);
+        assert_eq!(stat.mem_percent(), 34.2);
+        // 63.16 MiB -> 63.16 * 1024 * 1024 bytes
+        assert!((stat.mem_used_bytes() - 63.16 * 1024.0 * 1024.0).abs() < 1.0);
+        // 8.50MB -> 8.50 * 1024 * 1024 bytes (MB treated as binary here)
+        assert!((stat.net_rx_bytes() - 8.50 * 1024.0 * 1024.0).abs() < 1.0);
+        assert!((stat.block_rx_bytes() - 12.30 * 1024.0 * 1024.0).abs() < 1.0);
+    }
+
+    #[test]
+    fn stat_missing_fields_default_to_zero() {
+        let stat = Stat::default();
+        assert_eq!(stat.cpu_percent(), 0.0);
+        assert_eq!(stat.mem_used_bytes(), 0.0);
+        assert_eq!(stat.net_rx_bytes(), 0.0);
+    }
 }

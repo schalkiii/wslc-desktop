@@ -3,8 +3,8 @@
 use egui::{Align, Layout, RichText};
 
 use crate::app::{
-    state_color, DetailTab, NetworkDialog, PullDialog, RunDialog, Section, VolumeDialog,
-    WslcDesktopApp,
+    state_color, CommandSortKey, ContainerSortKey, DetailTab, NetworkDialog, PullDialog,
+    RunDialog, Section, VolumeDialog, WslcDesktopApp,
 };
 use crate::poller::{Action, UiRequest};
 use crate::wslc::types::relative_time;
@@ -196,8 +196,17 @@ impl WslcDesktopApp {
             net_io: String,
             block_io: String,
             pids: String,
+            // Sortable primitives (raw/numeric) used by header-click sorting.
+            cpu_f: f64,
+            mem_f: f64,
+            mem_perc_f: f64,
+            net_f: f64,
+            block_f: f64,
+            pids_u: u32,
+            created_at: i64,
+            state_ord: u8,
         }
-        let rows: Vec<Row> = self
+        let mut rows: Vec<Row> = self
             .containers
             .iter()
             .filter(|c| self.filter_matches(&[&c.name, &c.image]))
@@ -223,9 +232,48 @@ impl WslcDesktopApp {
                     net_io: stat.map(|s| s.net_io.clone()).unwrap_or_else(dash),
                     block_io: stat.map(|s| s.block_io.clone()).unwrap_or_else(dash),
                     pids: stat.map(|s| s.pids.to_string()).unwrap_or_else(dash),
+                    cpu_f: stat.map(|s| s.cpu_percent()).unwrap_or(0.0),
+                    mem_f: stat.map(|s| s.mem_used_bytes()).unwrap_or(0.0),
+                    mem_perc_f: stat.map(|s| s.mem_percent()).unwrap_or(0.0),
+                    net_f: stat.map(|s| s.net_rx_bytes()).unwrap_or(0.0),
+                    block_f: stat.map(|s| s.block_rx_bytes()).unwrap_or(0.0),
+                    pids_u: stat.map(|s| s.pids).unwrap_or(0),
+                    created_at: c.created_at,
+                    state_ord: match c.state() {
+                        crate::wslc::ContainerState::Running => 0,
+                        crate::wslc::ContainerState::Paused => 1,
+                        crate::wslc::ContainerState::Created => 2,
+                        crate::wslc::ContainerState::Exited => 3,
+                        crate::wslc::ContainerState::Unknown(_) => 4,
+                    },
                 }
             })
             .collect();
+
+        // Sort rows by the active header (clicking a header toggles direction).
+        {
+            let key = self.container_sort_key;
+            let asc = self.container_sort_asc;
+            rows.sort_by(|a, b| {
+                let ord = match key {
+                    ContainerSortKey::Name => a.name.cmp(&b.name),
+                    ContainerSortKey::Image => a.image.cmp(&b.image),
+                    ContainerSortKey::State => a.state_ord.cmp(&b.state_ord),
+                    ContainerSortKey::Cpu => a.cpu_f.total_cmp(&b.cpu_f),
+                    ContainerSortKey::Mem => a.mem_f.total_cmp(&b.mem_f),
+                    ContainerSortKey::MemPerc => a.mem_perc_f.total_cmp(&b.mem_perc_f),
+                    ContainerSortKey::NetIo => a.net_f.total_cmp(&b.net_f),
+                    ContainerSortKey::BlockIo => a.block_f.total_cmp(&b.block_f),
+                    ContainerSortKey::Pids => a.pids_u.cmp(&b.pids_u),
+                    ContainerSortKey::Created => a.created_at.cmp(&b.created_at),
+                };
+                if asc {
+                    ord
+                } else {
+                    ord.reverse()
+                }
+            });
+        }
 
         egui::ScrollArea::both()
             .auto_shrink([false, false])
@@ -236,11 +284,50 @@ impl WslcDesktopApp {
                     .spacing([12.0, 8.0])
                     .min_col_width(46.0)
                     .show(ui, |ui| {
-                        for h in [
-                            "", "Name", "Image", "State", "CPU", "Mem", "Mem %", "Net I/O",
-                            "Block I/O", "PIDs", "Created", "Ports", "Actions",
-                        ] {
-                            ui.label(RichText::new(h).strong());
+                        // Clickable headers: clicking sorts by that column;
+                        // clicking the active column toggles ascending/descending.
+                        use crate::app::ContainerSortKey as CSK;
+                        let headers: &[(&str, Option<CSK>)] = &[
+                            ("", None),
+                            ("Name", Some(CSK::Name)),
+                            ("Image", Some(CSK::Image)),
+                            ("State", Some(CSK::State)),
+                            ("CPU", Some(CSK::Cpu)),
+                            ("Mem", Some(CSK::Mem)),
+                            ("Mem %", Some(CSK::MemPerc)),
+                            ("Net I/O", Some(CSK::NetIo)),
+                            ("Block I/O", Some(CSK::BlockIo)),
+                            ("PIDs", Some(CSK::Pids)),
+                            ("Created", Some(CSK::Created)),
+                            ("Ports", None),
+                            ("Actions", None),
+                        ];
+                        for (label, key) in headers {
+                            if let Some(k) = key {
+                                let active = self.container_sort_key == *k;
+                                let arrow = if active {
+                                    if self.container_sort_asc {
+                                        " ▲"
+                                    } else {
+                                        " ▼"
+                                    }
+                                } else {
+                                    ""
+                                };
+                                if ui
+                                    .button(RichText::new(format!("{label}{arrow}")).small())
+                                    .clicked()
+                                {
+                                    if self.container_sort_key == *k {
+                                        self.container_sort_asc = !self.container_sort_asc;
+                                    } else {
+                                        self.container_sort_key = *k;
+                                        self.container_sort_asc = true;
+                                    }
+                                }
+                            } else {
+                                ui.label(RichText::new(*label).strong());
+                            }
                         }
                         ui.end_row();
 
@@ -300,7 +387,7 @@ impl WslcDesktopApp {
                                     if ui.small_button("⏹").on_hover_text("Stop").clicked() {
                                         self.send(UiRequest::Action(Action::Stop(row.target.clone())));
                                     }
-                                    if ui.small_button("⟳").on_hover_text("Restart (stop+start)").clicked() {
+                                    if ui.small_button("🔄").on_hover_text("Restart (stop+start)").clicked() {
                                         self.send(UiRequest::Action(Action::Restart(row.target.clone())));
                                     }
                                     if ui.small_button("💀").on_hover_text("Kill (SIGKILL)").clicked() {
@@ -553,13 +640,31 @@ impl WslcDesktopApp {
 
         // Snapshot (index, name, description, command) so we don't borrow self
         // while iterating; deferred actions are applied after the grid.
-        let rows: Vec<(usize, String, String, String)> = self
+        let mut rows: Vec<(usize, String, String, String)> = self
             .saved_commands
             .iter()
             .enumerate()
             .filter(|(_, c)| self.filter_matches(&[&c.name, &c.description, &c.command]))
             .map(|(i, c)| (i, c.name.clone(), c.description.clone(), c.command.clone()))
             .collect();
+
+        // Sort by the active commands-table column (click toggles direction).
+        {
+            let key = self.command_sort_key;
+            let asc = self.command_sort_asc;
+            rows.sort_by(|a, b| {
+                let ord = match key {
+                    CommandSortKey::Name => a.1.cmp(&b.1),
+                    CommandSortKey::Description => a.2.cmp(&b.2),
+                    CommandSortKey::Command => a.3.cmp(&b.3),
+                };
+                if asc {
+                    ord
+                } else {
+                    ord.reverse()
+                }
+            });
+        }
 
         let mut run: Option<usize> = None;
         let mut copy: Option<String> = None;
@@ -579,8 +684,40 @@ impl WslcDesktopApp {
                     .spacing([12.0, 8.0])
                     .min_col_width(50.0)
                     .show(ui, |ui| {
-                        for h in ["Name", "Description", "Command", "Actions"] {
-                            ui.label(RichText::new(h).strong());
+                        // Clickable headers (sort by Name / Description / Command).
+                        use crate::app::CommandSortKey as CMK;
+                        let headers: &[(&str, Option<CMK>)] = &[
+                            ("Name", Some(CMK::Name)),
+                            ("Description", Some(CMK::Description)),
+                            ("Command", Some(CMK::Command)),
+                            ("Actions", None),
+                        ];
+                        for (label, key) in headers {
+                            if let Some(k) = key {
+                                let active = self.command_sort_key == *k;
+                                let arrow = if active {
+                                    if self.command_sort_asc {
+                                        " ▲"
+                                    } else {
+                                        " ▼"
+                                    }
+                                } else {
+                                    ""
+                                };
+                                if ui
+                                    .button(RichText::new(format!("{label}{arrow}")).small())
+                                    .clicked()
+                                {
+                                    if self.command_sort_key == *k {
+                                        self.command_sort_asc = !self.command_sort_asc;
+                                    } else {
+                                        self.command_sort_key = *k;
+                                        self.command_sort_asc = true;
+                                    }
+                                }
+                            } else {
+                                ui.label(RichText::new(*label).strong());
+                            }
                         }
                         ui.end_row();
 
@@ -598,7 +735,7 @@ impl WslcDesktopApp {
                                 if ui.small_button("📋").on_hover_text("Copy command").clicked() {
                                     copy = Some(command.clone());
                                 }
-                                if ui.small_button("✎").on_hover_text("Edit").clicked() {
+                                if ui.small_button("📝").on_hover_text("Edit").clicked() {
                                     edit = Some(*index);
                                 }
                                 if ui.small_button("🗑").on_hover_text("Delete").clicked() {
@@ -614,7 +751,7 @@ impl WslcDesktopApp {
                     if ui.button("➕ Add command…").clicked() {
                         self.command_dialog = Some(crate::app::CommandDialog::default());
                     }
-                    if ui.button("↺ Restore presets").on_hover_text(
+                    if ui.button("♻️ Restore presets").on_hover_text(
                         "Re-import the containers from wslc-menu.ps1 (does not remove your own entries)",
                     ).clicked() {
                         self.restore_command_presets();

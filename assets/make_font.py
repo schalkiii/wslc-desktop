@@ -48,6 +48,18 @@ def wanted_unicodes() -> set[int]:
                 continue
             codes.add(ord(ch))
 
+    # Geometric-shape glyphs used by sort indicators and the start/run button.
+    # These live in Noto Sans SC (so they render from the bundled font on any
+    # host); the remaining action glyphs (stop/restart/restore/edit/etc.) are
+    # real emoji and render via egui's bundled emoji font.
+    codes.update(
+        {
+            0x25B2,  # ▲  sort ascending
+            0x25BC,  # ▼  sort descending
+            0x25B6,  # ▶  start / run
+        }
+    )
+
     return codes
 
 
