@@ -300,6 +300,11 @@ impl WslcDesktopApp {
         }
         cc.egui_ctx.set_style(style);
         apply_theme(&cc.egui_ctx, settings.dark_mode);
+        // Apply the saved UI scale once at startup. We deliberately do NOT
+        // re-apply it every frame: rescaling mid-drag makes the slider fight
+        // its own cursor and snap back (see top_bar, where it is applied on
+        // drag release instead).
+        cc.egui_ctx.set_pixels_per_point(settings.ui_scale);
 
         let worker = poller::spawn(cc.egui_ctx.clone());
         let _ = worker.tx.send(UiRequest::SetAutoRefresh(settings.auto_refresh));
@@ -603,9 +608,6 @@ impl WslcDesktopApp {
 impl eframe::App for WslcDesktopApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.drain_events();
-
-        // Apply the global UI scale (covers layout + fonts via eframe).
-        ctx.set_pixels_per_point(self.settings.ui_scale);
 
         // Global keyboard shortcuts.
         if ctx.input(|i| i.key_pressed(egui::Key::F5)) {

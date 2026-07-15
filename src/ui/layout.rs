@@ -31,16 +31,22 @@ impl WslcDesktopApp {
                     }
 
                     // Global UI scale (scales layout + fonts together).
+                    // Applied on drag release only: re-scaling mid-drag makes
+                    // the slider fight its own cursor and snap back, so the
+                    // value never settles. Keyboard / scroll changes apply live.
                     ui.scope(|ui| {
-                        ui.set_max_width(140.0);
-                        ui.add(
-                            egui::Slider::new(&mut self.settings.ui_scale, 0.8..=1.6)
-                                .step_by(0.05)
-                                .fixed_decimals(0)
-                                .suffix("× UI")
-                                .min_decimals(1),
-                        )
-                        .on_hover_text("Global UI scale — affects layout and font size");
+                        ui.set_max_width(150.0);
+                        let scale_resp = ui
+                            .add(
+                                egui::Slider::new(&mut self.settings.ui_scale, 0.8..=1.6)
+                                    .step_by(0.05)
+                                    .fixed_decimals(2)
+                                    .suffix("× UI"),
+                            )
+                            .on_hover_text("Global UI scale — affects layout and font size");
+                        if scale_resp.drag_stopped() || (scale_resp.changed() && !scale_resp.dragged()) {
+                            ctx.set_pixels_per_point(self.settings.ui_scale);
+                        }
                     });
 
                     // Auto-refresh toggle.
