@@ -38,7 +38,7 @@ impl WslcDesktopApp {
                         ui.set_max_width(150.0);
                         let scale_resp = ui
                             .add(
-                                egui::Slider::new(&mut self.settings.ui_scale, 0.8..=1.6)
+                                egui::Slider::new(&mut self.settings.ui_scale, 0.8..=2.5)
                                     .step_by(0.05)
                                     .fixed_decimals(2)
                                     .suffix("× UI"),

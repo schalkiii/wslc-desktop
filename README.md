@@ -22,7 +22,7 @@
 | **Detail panel** | Logs (**streaming follow `-f`**, timestamps, reload, copy-all), raw `inspect` JSON, CPU% / memory chart for the selected container, Exec (running containers only) |
 | **Saved Commands** | Save & persist any `wslc run …` command line; one-click run / copy / edit (📝) / delete; **click-to-sort by Name / Description / Command**; seeds **27 homelab container presets** from `wslc-menu.ps1` on first launch; "Restore presets" tops up without overwriting your custom entries |
 | **Live monitoring** | Background 2s `wslc stats` poll, scrolling samples for trend charts; container list shows CPU / Mem / Mem% / Net I/O / Block I/O / PIDs directly |
-| **Experience** | Dark / light theme toggle (persisted), **global UI-scale slider** (top bar `× UI`, 80%–160% live, scales layout + fonts together, defaults to 110%), filter by name / image / driver, danger-action confirmation, result toasts, bottom status bar (counts + live/paused + "updated Ns ago"), state color coding, **bundled CJK font** (Noto Sans SC subset so Chinese command descriptions render instead of tofu boxes), **all icons / symbols bundled** (window icon + action buttons + sort arrows ship with the font, so nothing boxes on any host) |
+| **Experience** | Dark / light theme toggle (persisted), **global UI-scale slider** (top bar `× UI`, 80%–250% live, scales layout + fonts together, defaults to 110%), filter by name / image / driver, danger-action confirmation, result toasts, bottom status bar (counts + live/paused + "updated Ns ago"), state color coding, **bundled CJK font** (Noto Sans SC subset so Chinese command descriptions render instead of tofu boxes), **all icons / symbols bundled** (window icon + action buttons + sort arrows ship with the font, so nothing boxes on any host) |
 
 > State mapping (cross-checked against `lazywslc`/`lazywslcontainer` and verified on local wslc 2.9.3.0): `1=Created`, `2=Running`, `3=Exited`, `4=Paused`.
 > **Known limits**: wslc currently offers no `pause`/`rename`, CVE/SBOM scanning, drag-and-drop volume mounts, or Compose — this tool does not fake those commands.
@@ -71,7 +71,7 @@
 | Error handling | anyhow | |
 | Time | chrono | Relative-time display |
 
-> Why not Tauri: Tauri needs the WebView2 runtime + a front-end toolchain, making a heavier artifact with more dependencies. WebView2 was not detected on the dev machine, and the user prefers "self-contained, no external deps", so egui was chosen. Tauri remains a candidate for heavier future UI needs.
+> Why not Tauri: Tauri needs the WebView2 runtime + a front-end toolchain, making a heavier artifact with more dependencies. Since the user prefers "self-contained, no external deps", egui was chosen. Tauri remains a candidate for heavier future UI needs.
 
 ---
 
@@ -155,14 +155,24 @@ See [`docs/竞品拆解与技术方案.md`](docs/竞品拆解与技术方案.md)
 
 ## ✅ Milestones
 
-- **M1 (2026-07-15)**: CRUD for containers / images / volumes / networks, lifecycle ops, run wizard, live stats charts, streaming logs, inspect, Exec, dark theme, one-click open ports, **Saved Commands (27 presets + persistence + run/edit)**, warning-free build (`cargo clippy --all-targets` clean).
+- **M1 (2026-07-15)**:
+  - CRUD for containers / images / volumes / networks.
+  - Lifecycle ops: start / stop / restart (emulated as stop+start) / kill / remove (forceable).
+  - Run wizard: image / name / ports / env / volumes / network / workdir / user / hostname / memory / CPU / entrypoint / command, with a live `wslc run …` preview.
+  - Live stats charts: background 2s `wslc stats` poll, scrolling CPU / memory trend samples.
+  - Streaming logs (follow `-f`, timestamps, copy-all) + raw `inspect` JSON.
+  - Exec into running containers.
+  - Dark theme (persisted).
+  - One-click open container ports in the browser.
+  - **Saved Commands**: 27 homelab presets + persistence + one-click run / copy / edit / delete.
+  - Warning-free build (`cargo clippy --all-targets` clean).
 - **M2 (2026-07-16)**:
   - Image `In Use` status column (registry / namespace-tolerant match; click to jump to containers using the image).
   - One-click China mirror sources in the Pull dialog.
   - Chinese command descriptions render correctly (bundled Noto Sans SC subset, no tofu).
   - **Click-to-sort headers** on the container table and the Saved Commands table (click again to toggle asc/desc).
   - Window icon + action buttons + sort arrows all bundled with the font, so nothing boxes on any host.
-  - Top-bar `× UI` slider for **global UI scaling** (80%–160%, defaults to 110%), scaling layout + fonts together and persisting.
+  - Top-bar `× UI` slider for **global UI scaling** (80%–250%, defaults to 110%), scaling layout + fonts together and persisting.
 
 ---
 

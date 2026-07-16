@@ -199,7 +199,10 @@ impl WslcClient {
     }
 
     pub fn prune_containers(&self) -> Result<String> {
-        self.run(&["container", "prune", "--force"])
+        // wslc `container prune` accepts no `--force` flag (it has no options
+        // other than `--help`); passing one errors with "无法识别当前命令的
+        // 参数名称". The GUI already confirms the action before calling this.
+        self.run(&["container", "prune"])
     }
 
     // ---- images -------------------------------------------------------------
@@ -218,7 +221,10 @@ impl WslcClient {
     }
 
     pub fn prune_images(&self) -> Result<String> {
-        self.run(&["image", "prune", "--force"])
+        // wslc `image prune` accepts `-a/--all` and `-f/--filter`, but no
+        // `--force`; the GUI confirms before calling. Keeping the flag would
+        // error ("无法识别当前命令的参数名称").
+        self.run(&["image", "prune"])
     }
 
     // ---- volumes ------------------------------------------------------------
@@ -239,7 +245,11 @@ impl WslcClient {
     }
 
     pub fn prune_volumes(&self) -> Result<String> {
-        self.run(&["volume", "prune", "--force"])
+        // wslc `volume prune` accepts `-a/--all` and `-f/--filter`, but no
+        // `--force`. The user-visible error was "无法识别当前命令的参数名称:
+        // --force". The GUI confirms before calling, so dropping the flag is
+        // safe and makes the prune actually run.
+        self.run(&["volume", "prune"])
     }
 
     // ---- networks -----------------------------------------------------------
@@ -253,7 +263,9 @@ impl WslcClient {
     }
 
     pub fn prune_networks(&self) -> Result<String> {
-        self.run(&["network", "prune", "--force"])
+        // wslc `network prune` accepts `-f/--filter` but no `--force`; the GUI
+        // confirms before calling, so the flag is dropped (it would error).
+        self.run(&["network", "prune"])
     }
 
     // ---- run ----------------------------------------------------------------
