@@ -263,6 +263,11 @@ pub struct WslcDesktopApp {
     pub(crate) command_sort_key: CommandSortKey,
     pub(crate) command_sort_asc: bool,
 
+    /// Ensures the saved UI scale is applied exactly once, on the first
+    /// `update()` frame (after egui knows the native/OS scale factor). See
+    /// `new()` for why it must not be applied there.
+    pub(crate) scale_initialized: bool,
+
     pub(crate) confirm: Option<ConfirmState>,
     pub(crate) run_dialog: Option<RunDialog>,
     pub(crate) volume_dialog: Option<VolumeDialog>,
@@ -300,11 +305,14 @@ impl WslcDesktopApp {
         }
         cc.egui_ctx.set_style(style);
         apply_theme(&cc.egui_ctx, settings.dark_mode);
-        // Apply the saved UI scale once at startup. We deliberately do NOT
-        // re-apply it every frame: rescaling mid-drag makes the slider fight
-        // its own cursor and snap back (see top_bar, where it is applied on
-        // drag release instead).
-        cc.egui_ctx.set_pixels_per_point(settings.ui_scale);
+        // NOTE: the saved UI scale is applied in `update()` on the first frame
+        // (see `scale_initialized`), NOT here. Calling `set_pixels_per_point`
+        // during `new()` runs before egui knows the OS/native scale factor, so
+        // it mis-computes the zoom and compounds the native scale once the first
+        // frame arrives (startup looked ~2.25x on a 150% display instead of the
+        // intended 1.5x). Applying on the first `update()` frame, where
+        // `native_pixels_per_point` is already known, makes startup and
+        // drag-to-rescale behave identically.
 
         let worker = poller::spawn(cc.egui_ctx.clone());
         let _ = worker.tx.send(UiRequest::SetAutoRefresh(settings.auto_refresh));
@@ -337,6 +345,7 @@ impl WslcDesktopApp {
             container_sort_asc: true,
             command_sort_key: CommandSortKey::default(),
             command_sort_asc: true,
+            scale_initialized: false,
             confirm: None,
             run_dialog: None,
             volume_dialog: None,
@@ -607,6 +616,14 @@ impl WslcDesktopApp {
 
 impl eframe::App for WslcDesktopApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Apply the saved UI scale once, on the first frame. By now egui has
+        // received the native/OS scale factor, so `set_pixels_per_point` computes
+        // the zoom correctly and startup scaling matches a later drag-to-rescale.
+        if !self.scale_initialized {
+            ctx.set_pixels_per_point(self.settings.ui_scale);
+            self.scale_initialized = true;
+        }
+
         self.drain_events();
 
         // Global keyboard shortcuts.

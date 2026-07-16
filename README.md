@@ -8,6 +8,8 @@
 
 `wslc` is Microsoft's container solution, announced at Build 2026 and entering public preview on 2026-06-29. It uses Docker-compatible syntax and is built on Moby, but **Microsoft only ships a CLI — there is no GUI**. The community's `lazywslc` / `lazywslcontainer` are terminal TUIs. `wslc-desktop` fills that gap: it brings day-to-day container, image, and volume management into a responsive windowed app, with live CPU / memory charts.
 
+<img src="assets/screenshot.png" width="900" alt="wslc-desktop main window" />
+
 ---
 
 ## ✨ Features
@@ -117,6 +119,7 @@ wslc-desktop/
 ├── assets/                     # app icon + bundled font
 │   ├── icon.ico                #   exe icon (winresource-embedded)
 │   ├── icon_rgba.bin           #   runtime window icon (loaded by eframe, no decode dep)
+│   ├── screenshot.png          #   app showcase image used in this README
 │   ├── fonts/NotoSansSC-Subset.otf  # CJK font subset (GB2312, ~1.8 MB)
 │   ├── make_icon.py            #   icon generation script (Pillow)
 │   └── make_font.py            #   font subsetting script (fontTools)

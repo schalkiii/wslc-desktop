@@ -8,6 +8,8 @@
 
 `wslc` 是微软于 2026 Build 大会发布、2026-06-29 进入公开预览的容器方案，采用 Docker 兼容语法、底层基于 Moby，但**官方只提供 CLI，没有图形界面**。社区现有的 `lazywslc` / `lazywslcontainer` 也都是终端 TUI。`wslc-desktop` 填补这块空白：把容器、镜像、卷的日常管理搬进一个响应式的窗口应用，并提供实时的 CPU / 内存曲线。
 
+<img src="assets/screenshot.png" width="900" alt="wslc-desktop 主界面" />
+
 ---
 
 ## ✨ 功能特性
@@ -116,6 +118,7 @@ wslc-desktop/
 ├── assets/                     # 应用图标 + 内置字体
 │   ├── icon.ico                #   可执行文件图标（winresource 嵌入）
 │   ├── icon_rgba.bin           #   运行时窗口图标（eframe 直接加载，无解码依赖）
+│   ├── screenshot.png          #   本 README 使用的界面展示图
 │   ├── fonts/NotoSansSC-Subset.otf  # 中文字体子集（GB2312，~1.8 MB）
 │   ├── make_icon.py            #   图标生成脚本（Pillow）
 │   └── make_font.py            #   字体子集化脚本（fontTools）
