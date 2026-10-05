@@ -735,4 +735,97 @@ mod tests {
         assert_eq!(parse_wslc_time("1719999999"), 1_719_999_999);
         assert_eq!(parse_wslc_time("n/a"), 0);
     }
+
+    /// ≥3.x 网络行（3.0.1.0 实测）：ID/Name/Driver/Scope 均靠 alias 命中。
+    #[test]
+    fn network_row_from_wslc3() {
+        let raw = r#"{"CreatedAt":"2026-10-05 15:44:29.886881206 +0000 UTC","Driver":"bridge","ID":"c1758720de06","IPv4":"true","IPv6":"false","Internal":"false","Labels":"","Name":"bridge","Scope":"local"}"#;
+        let n: Network = serde_json::from_str(raw).unwrap();
+        assert_eq!(n.display_name(), "bridge");
+        assert_eq!(n.short_id(), "c1758720de06");
+        assert_eq!(n.driver, "bridge");
+        assert_eq!(n.scope, "local");
+    }
+
+    /// ≤2.x 卷行：未知字段忽略、Driver/Name 命中。
+    #[test]
+    fn volume_row_parses() {
+        let raw = r#"{"Driver":"guest","Name":"pansou-data","Extra":"ignored"}"#;
+        let v: Volume = serde_json::from_str(raw).unwrap();
+        assert_eq!(v.name, "pansou-data");
+        assert_eq!(v.driver, "guest");
+    }
+
+    /// 状态码 → 标签的全枚举覆盖（UI 直接展示这些标签）。
+    #[test]
+    fn container_state_labels_and_codes() {
+        assert_eq!(ContainerState::from_code(1).label(), "created");
+        assert_eq!(ContainerState::from_code(2).label(), "running");
+        assert_eq!(ContainerState::from_code(3).label(), "exited");
+        assert_eq!(ContainerState::from_code(4).label(), "paused");
+        assert_eq!(ContainerState::from_code(99).label(), "unknown(99)");
+        assert!(ContainerState::from_code(2).is_running());
+        assert!(!ContainerState::from_code(3).is_running());
+    }
+
+    /// 镜像 ID 兼容 sha256: 前缀与裸短码两种形态。
+    #[test]
+    fn image_short_id_variants() {
+        let mut image = Image {
+            id: "sha256:0123456789abcdef".into(),
+            repository: String::new(),
+            tag: String::new(),
+            size: 0,
+            created: 0,
+        };
+        assert_eq!(image.short_id(), "0123456789ab");
+        // repository 为空时 reference 回退短 ID。
+        assert_eq!(image.reference(), "0123456789ab");
+        image.id = "3b84dca42aa4".into();
+        assert_eq!(image.short_id(), "3b84dca42aa4");
+    }
+
+    /// human_size 二进制单位进位与边界（0B、恰好在单位边界）。
+    #[test]
+    fn human_size_units() {
+        assert_eq!(human_size(0), "0 B");
+        assert_eq!(human_size(512), "512 B");
+        assert_eq!(human_size(1024), "1.00 KiB");
+        assert_eq!(human_size(210 * 1024 * 1024), "210.00 MiB");
+        assert_eq!(human_size(15 * 1024 * 1024 * 1024 + 1), "15.00 GiB");
+    }
+
+    /// relative_time 的各时间档位与边界输入（0/负值显示 -）。
+    #[test]
+    fn relative_time_tiers() {
+        assert_eq!(relative_time(0), "-");
+        let now = chrono::Utc::now().timestamp();
+        assert_eq!(relative_time(now + 10), "just now");
+        assert_eq!(relative_time(now - 30), "30s ago");
+        assert_eq!(relative_time(now - 120), "2m ago");
+        assert_eq!(relative_time(now - 7200), "2h ago");
+        assert_eq!(relative_time(now - 3 * 86_400), "3d ago");
+    }
+
+    /// normalize_image_ref：registry/命名空间/协议/缺省 tag 的归一化边界。
+    #[test]
+    fn normalize_image_ref_variants() {
+        fn norm(s: &str) -> String {
+            // 通过 uses_image 间接驱动难以覆盖全部输入，直接测私有函数。
+            super::normalize_image_ref(s)
+        }
+        assert_eq!(norm("nginx"), "nginx:latest");
+        assert_eq!(norm("nginx:1.25"), "nginx:1.25");
+        assert_eq!(norm("docker.io/library/nginx"), "nginx:latest");
+        assert_eq!(norm("localhost:5000/myimg"), "myimg:latest");
+        assert_eq!(norm("localhost/myimg"), "myimg:latest");
+        assert_eq!(
+            norm("https://registry-1.docker.io/library/nginx:latest"),
+            "nginx:latest"
+        );
+        // 带端口歧义：repo:tag（无斜杠）不当作 registry host。
+        assert_eq!(norm("nginx:8080"), "nginx:8080");
+        // 命名空间镜像保留 path（仅剥 host）。
+        assert_eq!(norm("ghcr.io/owner/repo:tag"), "owner/repo:tag");
+    }
 }

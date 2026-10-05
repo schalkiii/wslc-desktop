@@ -283,7 +283,7 @@ fn parse_resource_list<T: serde::de::DeserializeOwned>(raw: &str, command: &str)
 
 #[cfg(test)]
 mod tests {
-    use super::parse_resource_list;
+    use super::{parse_resource_list, strip_copyright_header};
 
     /// ≥3.x 的 NDJSON 多行对象（含对象间空行、CRLF 行尾）逐行解析。
     #[test]
@@ -311,5 +311,36 @@ mod tests {
             .unwrap()
             .is_empty());
         assert!(parse_resource_list::<serde_json::Value>("not json", "x").is_err());
+    }
+
+    /// 版权/隐私 banner 各形态都被剥掉，首个实质行之后内容原样保留。
+    #[test]
+    fn strip_copyright_header_removes_leading_banner() {
+        let raw = "Copyright (c) Microsoft Corporation.\r\n\r\nSee ... for privacy information.\r\nwslc 3.0.1.0\r\nnext line\r\n";
+        assert_eq!(strip_copyright_header(raw), "wslc 3.0.1.0\nnext line");
+    }
+
+    /// JSON 数据行即使包含 "microsoft"（镜像名等）也不能被误当 banner。
+    #[test]
+    fn strip_copyright_header_keeps_json_containing_microsoft() {
+        let raw = r#"{"ID":"a","Image":"mcr.microsoft.com/dotnet/runtime:latest"}"#;
+        assert_eq!(strip_copyright_header(raw), raw);
+    }
+
+    /// 无 banner 的普通文本（如日志）原样保留，包括空行。
+    #[test]
+    fn strip_copyright_header_keeps_plain_text() {
+        let raw = "Server start on http://localhost:8088/\r\n\r\nsecond\r\n";
+        assert_eq!(
+            strip_copyright_header(raw),
+            "Server start on http://localhost:8088/\n\nsecond"
+        );
+    }
+
+    /// 空 / 纯空白输入 → 空字符串。
+    #[test]
+    fn strip_copyright_header_empty_input() {
+        assert_eq!(strip_copyright_header(""), "");
+        assert_eq!(strip_copyright_header("  \r\n\r\n "), "");
     }
 }

@@ -196,16 +196,17 @@ impl Worker {
             self.client.list_volumes(),
             self.client.list_networks(),
         ) {
-            (Ok(containers), Ok(images), Ok(volumes), networks) => {
+            (Ok(containers), Ok(images), volumes, networks) => {
                 let _ = self.tx.send(WorkerEvent::Snapshot {
                     containers,
                     images,
-                    volumes,
-                    // Networks are best-effort; an error yields an empty list.
+                    // 卷/网络尽力而为：单个资源的 schema 漂移只表现为空列表，
+                    // 不拖垮容器/镜像这两个核心视图（否则一个 Err 会全灭）。
+                    volumes: volumes.unwrap_or_default(),
                     networks: networks.unwrap_or_default(),
                 });
             }
-            (Err(e), _, _, _) | (_, Err(e), _, _) | (_, _, Err(e), _) => {
+            (Err(e), _, _, _) | (_, Err(e), _, _) => {
                 let _ = self.tx.send(WorkerEvent::SnapshotError(e.to_string()));
             }
         }

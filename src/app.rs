@@ -147,7 +147,9 @@ impl RunDialog {
         }
     }
 
-    /// Split a comma/space-separated field into trimmed, non-empty tokens.
+    /// Split a comma/newline-separated field into trimmed, non-empty tokens.
+    /// 刻意不按空格拆分：Windows 挂载路径常含空格（`C:\a b:/data`），
+    /// 按空格拆会撕裂路径，多值一律用逗号分隔。
     fn list(field: &str) -> Vec<String> {
         field
             .split([',', '\n'])
@@ -812,12 +814,12 @@ fn default_saved_commands() -> Vec<SavedCommand> {
         sc(
             "postgresql_mp",
             "PostgreSQL (MoviePilot)",
-            r#"wslc run -d --name postgresql_mp -p 5433:5432 -e POSTGRES_DB=moviepilot -e POSTGRES_USER=moviepilot -e POSTGRES_PASSWORD="<your-password>" -v "C:\docker\postgresql_mp:/var/lib/postgresql" docker.1panel.live/library/postgres"#,
+            r#"wslc run -d --name postgresql_mp -p 5433:5432 -e POSTGRES_DB=moviepilot -e POSTGRES_USER=moviepilot -e POSTGRES_PASSWORD=<your-password> -v "C:\docker\postgresql_mp:/var/lib/postgresql" docker.1panel.live/library/postgres"#,
         ),
         sc(
             "redis_mp",
             "Redis (MoviePilot)",
-            r#"wslc run --name redis_mp -p 6379:6379 -v "C:\docker\redis\data:/data" -d docker.1panel.live/library/redis redis-server --save 600 1 --requirepass "<your-password>""#,
+            r#"wslc run --name redis_mp -p 6379:6379 -v "C:\docker\redis\data:/data" -d docker.1panel.live/library/redis redis-server --save 600 1 --requirepass <your-password>"#,
         ),
         sc(
             "smartdns",
@@ -881,6 +883,7 @@ pub(crate) fn state_color(state: crate::wslc::ContainerState) -> Color32 {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use ab_glyph::{Font, FontRef};
 
     /// The bundled CJK subset must parse with egui's rasterizer (ab_glyph) and
@@ -908,6 +911,114 @@ mod tests {
                 font.glyph_id(ch).0,
                 0,
                 "font is missing UI glyph {ch:?} (.notdef)"
+            );
+        }
+    }
+
+    /// 多值字段按逗号/换行拆分并逐项 trim；含空格的 Windows 路径保持完整。
+    #[test]
+    fn run_dialog_list_keeps_space_paths() {
+        assert_eq!(
+            RunDialog::list("8080:80, 5432:5432\n9000:90"),
+            vec!["8080:80", "5432:5432", "9000:90"]
+        );
+        assert_eq!(
+            RunDialog::list(r"C:\a b:/data, named:/var"),
+            vec![r"C:\a b:/data", "named:/var"]
+        );
+        assert!(RunDialog::list(" , ,").is_empty());
+    }
+
+    /// to_spec 对全部文本字段做 trim，多值字段经 list 拆分。
+    #[test]
+    fn run_dialog_to_spec_trims_fields() {
+        let dialog = RunDialog {
+            image: " nginx:latest ".into(),
+            name: " web ".into(),
+            ports: "8080:80".into(),
+            env: " TZ=UTC ".into(),
+            volumes: String::new(),
+            network: " bridge ".into(),
+            workdir: String::new(),
+            user: String::new(),
+            hostname: String::new(),
+            memory: String::new(),
+            cpus: String::new(),
+            entrypoint: String::new(),
+            command: r#" nginx -g "daemon off;" "#.into(),
+            detach: true,
+            auto_remove: false,
+            publish_all: false,
+        };
+        let spec = dialog.to_spec();
+        assert_eq!(spec.image, "nginx:latest");
+        assert_eq!(spec.name, "web");
+        assert_eq!(spec.network, "bridge");
+        assert_eq!(spec.env, vec!["TZ=UTC"]);
+        assert_eq!(spec.ports, vec!["8080:80"]);
+        assert_eq!(spec.command, r#"nginx -g "daemon off;""#);
+    }
+
+    /// stats 键统一截到 12 位（≥3.x 完整 ID 与 list 短 ID 的对齐基础）。
+    #[test]
+    fn stats_key_is_first_12_chars() {
+        assert_eq!(
+            stats_key("fdda489428e98d9391f3a8e3dbd43dd1f764701b"),
+            "fdda489428e9"
+        );
+        assert_eq!(stats_key("fdda489428e9"), "fdda489428e9");
+        assert_eq!(stats_key(""), "");
+    }
+
+    /// StatHistory 是环形缓冲：超限丢弃最老样本，只保留最新 MAX_HISTORY 个。
+    #[test]
+    fn stat_history_caps_samples() {
+        let mut history = StatHistory::default();
+        for i in 0..(MAX_HISTORY * 2) {
+            history.push(i as f64, i as f64);
+        }
+        assert_eq!(history.cpu.len(), MAX_HISTORY);
+        assert_eq!(history.mem.len(), MAX_HISTORY);
+        assert_eq!(*history.cpu.back().unwrap(), (MAX_HISTORY * 2 - 1) as f64);
+    }
+
+    /// 五种状态徽章颜色互不相同（避免未来改动把两类状态撞成同色）。
+    #[test]
+    fn state_colors_are_distinct() {
+        use crate::wslc::ContainerState::{Created, Exited, Paused, Running, Unknown};
+        let colors = [
+            state_color(Running),
+            state_color(Exited),
+            state_color(Paused),
+            state_color(Created),
+            state_color(Unknown(9)),
+        ];
+        for i in 0..colors.len() {
+            for j in i + 1..colors.len() {
+                assert_ne!(colors[i], colors[j], "colors {i} and {j} are identical");
+            }
+        }
+    }
+
+    /// 内置预设不得包含真实凭据或内网地址（曾随仓库公开，作回归护栏），
+    /// 且每条都必须是可直接一键运行的 `wslc run …` 行。
+    #[test]
+    fn saved_command_presets_are_sanitized_and_runnable() {
+        for preset in default_saved_commands() {
+            assert!(
+                !preset.command.contains("5329800"),
+                "preset `{}` leaks a password",
+                preset.name
+            );
+            assert!(
+                !preset.command.contains("192.168."),
+                "preset `{}` leaks an intranet address",
+                preset.name
+            );
+            assert!(
+                preset.command.trim_start().starts_with("wslc run "),
+                "preset `{}` is not a `wslc run …` line",
+                preset.name
             );
         }
     }

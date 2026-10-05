@@ -70,15 +70,33 @@ impl RunSpec {
         push_repeated(&mut args, "-v", &self.volumes);
 
         args.push(self.image.trim().to_string());
-        for token in self.command.split_whitespace() {
-            args.push(token.to_string());
+        // 复用 shell 式分词而不是 whitespace-split：向导的 command 字段同样
+        // 会出现 `bash -c "echo hi && ls"` 这类带引号的命令，按空格硬拆会把
+        // 整条 payload 撕碎成错误参数。
+        for token in tokenize(&self.command) {
+            args.push(token);
         }
         args
     }
 
     /// A human-readable summary of the equivalent CLI, for the confirm/preview.
     pub fn preview(&self) -> String {
-        format!("wslc {}", self.to_args().join(" "))
+        let joined = self
+            .to_args()
+            .iter()
+            // 含空格的参数在 preview 中加引号，保证展示行复制后可直接执行。
+            .map(|token| {
+                if token.is_empty() {
+                    "\"\"".to_string()
+                } else if token.chars().any(|c| c.is_whitespace()) {
+                    format!("\"{token}\"")
+                } else {
+                    token.clone()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(" ");
+        format!("wslc {joined}")
     }
 }
 
@@ -344,6 +362,116 @@ fn tokenize(input: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::tokenize;
+    use super::*;
+
+    /// 空输入产生空列表；未闭合引号把剩余内容当作一个 token（宽容处理）。
+    #[test]
+    fn tokenize_edge_cases() {
+        assert!(tokenize("   ").is_empty());
+        assert_eq!(
+            tokenize(r#"run "unclosed arg"#),
+            vec!["run", "unclosed arg"]
+        );
+    }
+
+    /// 全部可选参数都填时的完整参数序（与 wslc run 的 flag 一一对应）。
+    #[test]
+    fn run_spec_to_args_full() {
+        let spec = RunSpec {
+            image: "nginx:latest".into(),
+            name: "web".into(),
+            ports: vec!["8080:80".into(), "5432:5432".into()],
+            env: vec!["TZ=UTC".into()],
+            volumes: vec!["C:/a b:/data".into()],
+            network: "bridge".into(),
+            workdir: "/app".into(),
+            user: "1000:1000".into(),
+            hostname: "web-host".into(),
+            memory: "512M".into(),
+            cpus: "1.5".into(),
+            entrypoint: "/entry.sh".into(),
+            command: "nginx -g \"daemon off;\"".into(),
+            detach: true,
+            auto_remove: true,
+            publish_all: true,
+        };
+        assert_eq!(
+            spec.to_args(),
+            vec![
+                "run",
+                "-d",
+                "--rm",
+                "-P",
+                "--name",
+                "web",
+                "--network",
+                "bridge",
+                "-w",
+                "/app",
+                "-u",
+                "1000:1000",
+                "-h",
+                "web-host",
+                "-m",
+                "512M",
+                "--cpus",
+                "1.5",
+                "--entrypoint",
+                "/entry.sh",
+                "-p",
+                "8080:80",
+                "-p",
+                "5432:5432",
+                "-e",
+                "TZ=UTC",
+                "-v",
+                "C:/a b:/data",
+                "nginx:latest",
+                "nginx",
+                "-g",
+                "daemon off;"
+            ]
+        );
+    }
+
+    /// 空可选字段不得产生空参数或悬空 flag；detached=false 走慢超时路径。
+    #[test]
+    fn run_spec_to_args_skips_empty_optionals() {
+        let spec = RunSpec {
+            image: "alpine".into(),
+            ..Default::default()
+        };
+        assert_eq!(spec.to_args(), vec!["run", "alpine"]);
+        assert!(!spec.detach);
+    }
+
+    /// 向导 command 字段的引号 payload 必须整块传递（此前按空格硬拆会撕碎）。
+    #[test]
+    fn run_spec_command_keeps_quoted_payload() {
+        let spec = RunSpec {
+            image: "python:3.11".into(),
+            command: r#"bash -c "echo hi && ls""#.into(),
+            detach: true,
+            ..Default::default()
+        };
+        let args = spec.to_args();
+        assert_eq!(
+            &args[args.len() - 4..],
+            &["python:3.11", "bash", "-c", "echo hi && ls"][..]
+        );
+    }
+
+    /// preview 行复制后可直接执行：含空格的参数带引号展示。
+    #[test]
+    fn run_spec_preview_quotes_whitespace_args() {
+        let spec = RunSpec {
+            image: "alpine".into(),
+            volumes: vec!["C:/a b:/data".into()],
+            detach: true,
+            ..Default::default()
+        };
+        assert_eq!(spec.preview(), r#"wslc run -d -v "C:/a b:/data" alpine"#);
+    }
 
     #[test]
     fn tokenize_handles_quoted_paths() {

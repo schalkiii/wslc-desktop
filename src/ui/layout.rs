@@ -217,13 +217,7 @@ impl WslcDesktopApp {
     }
 
     fn filter_matches(&self, haystack: &[&str]) -> bool {
-        if self.filter.trim().is_empty() {
-            return true;
-        }
-        let needle = self.filter.to_ascii_lowercase();
-        haystack
-            .iter()
-            .any(|h| h.to_ascii_lowercase().contains(&needle))
+        text_matches_filter(&self.filter, haystack)
     }
 
     fn container_table(&mut self, ui: &mut egui::Ui) {
@@ -925,6 +919,18 @@ fn dash() -> String {
     "-".to_string()
 }
 
+/// Case-insensitive substring match against any of the haystack fields; an
+/// empty (or whitespace-only) filter matches everything.
+fn text_matches_filter(filter: &str, haystack: &[&str]) -> bool {
+    let needle = filter.trim().to_ascii_lowercase();
+    if needle.is_empty() {
+        return true;
+    }
+    haystack
+        .iter()
+        .any(|h| h.to_ascii_lowercase().contains(&needle))
+}
+
 /// Truncate a string to `max` chars with an ellipsis.
 pub(crate) fn truncate(text: &str, max: usize) -> String {
     if text.chars().count() <= max {
@@ -932,4 +938,39 @@ pub(crate) fn truncate(text: &str, max: usize) -> String {
     }
     let taken: String = text.chars().take(max.saturating_sub(1)).collect();
     format!("{taken}…")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 过滤：空串/纯空白全通过，大小写不敏感，命中任一字段即可。
+    #[test]
+    fn text_matches_filter_is_case_insensitive_and_lenient() {
+        assert!(text_matches_filter("", &["nginx", "latest"]));
+        assert!(text_matches_filter("   ", &["nginx", "latest"]));
+        assert!(text_matches_filter("NGIN", &["nginx:latest", "x"]));
+        assert!(text_matches_filter("latest", &["a", "nginx:latest"]));
+        assert!(!text_matches_filter("redis", &["nginx", "latest"]));
+        // 带首尾空格的过滤词先 trim 再匹配。
+        assert!(text_matches_filter("  nginx  ", &["nginx:latest"]));
+    }
+
+    /// 截断：不超长原样返回；超长保留 max-1 字符加省略号；按字符而非字节
+    /// 处理（中文不被截成半个码点）。
+    #[test]
+    fn truncate_keeps_unicode_intact() {
+        assert_eq!(truncate("short", 10), "short");
+        assert_eq!(truncate("abcdefghij", 10), "abcdefghij");
+        assert_eq!(truncate("abcdefghijk", 10), "abcdefghi…");
+        assert_eq!(truncate("", 5), "");
+        assert_eq!(truncate("青龙面板镜像", 3), "青龙…");
+        // max=1 时只留省略号。
+        assert_eq!(truncate("abc", 1), "…");
+    }
+
+    #[test]
+    fn dash_placeholder() {
+        assert_eq!(dash(), "-");
+    }
 }
