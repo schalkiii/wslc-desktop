@@ -115,44 +115,54 @@ impl WslcDesktopApp {
                 .default_width(560.0)
                 .anchor(Align2::CENTER_CENTER, [0.0, 0.0])
                 .show(ctx, |ui| {
-                    egui::ScrollArea::vertical().max_height(440.0).show(ui, |ui| {
-                        egui::Grid::new("run_form")
-                            .num_columns(2)
-                            .spacing([10.0, 8.0])
-                            .min_col_width(90.0)
-                            .show(ui, |ui| {
-                                field(ui, "Image", &mut d.image, "repository:tag");
-                                field(ui, "Name", &mut d.name, "(optional)");
-                                field(ui, "Ports", &mut d.ports, "8080:80, 5432:5432");
-                                field(ui, "Env", &mut d.env, "KEY=VALUE, KEY2=VALUE2");
-                                field(ui, "Volumes", &mut d.volumes, "C:/data:/data, named:/var");
-                                field(ui, "Network", &mut d.network, "(optional)");
-                                field(ui, "Workdir", &mut d.workdir, "/app");
-                                field(ui, "User", &mut d.user, "uid[:gid] or name");
-                                field(ui, "Hostname", &mut d.hostname, "(optional)");
-                                field(ui, "Memory", &mut d.memory, "512M, 1G");
-                                field(ui, "CPUs", &mut d.cpus, "0.5, 2");
-                                field(ui, "Entrypoint", &mut d.entrypoint, "(optional)");
-                                field(ui, "Command", &mut d.command, "override CMD");
-                                ui.end_row();
+                    egui::ScrollArea::vertical()
+                        .max_height(440.0)
+                        .show(ui, |ui| {
+                            egui::Grid::new("run_form")
+                                .num_columns(2)
+                                .spacing([10.0, 8.0])
+                                .min_col_width(90.0)
+                                .show(ui, |ui| {
+                                    field(ui, "Image", &mut d.image, "repository:tag");
+                                    field(ui, "Name", &mut d.name, "(optional)");
+                                    field(ui, "Ports", &mut d.ports, "8080:80, 5432:5432");
+                                    field(ui, "Env", &mut d.env, "KEY=VALUE, KEY2=VALUE2");
+                                    field(
+                                        ui,
+                                        "Volumes",
+                                        &mut d.volumes,
+                                        "C:/data:/data, named:/var",
+                                    );
+                                    field(ui, "Network", &mut d.network, "(optional)");
+                                    field(ui, "Workdir", &mut d.workdir, "/app");
+                                    field(ui, "User", &mut d.user, "uid[:gid] or name");
+                                    field(ui, "Hostname", &mut d.hostname, "(optional)");
+                                    field(ui, "Memory", &mut d.memory, "512M, 1G");
+                                    field(ui, "CPUs", &mut d.cpus, "0.5, 2");
+                                    field(ui, "Entrypoint", &mut d.entrypoint, "(optional)");
+                                    field(ui, "Command", &mut d.command, "override CMD");
+                                    ui.end_row();
+                                });
+
+                            ui.add_space(6.0);
+                            ui.horizontal(|ui| {
+                                ui.checkbox(&mut d.detach, "Detached (-d)");
+                                ui.checkbox(&mut d.auto_remove, "Auto-remove (--rm)");
+                                ui.checkbox(&mut d.publish_all, "Publish all (-P)");
                             });
 
-                        ui.add_space(6.0);
-                        ui.horizontal(|ui| {
-                            ui.checkbox(&mut d.detach, "Detached (-d)");
-                            ui.checkbox(&mut d.auto_remove, "Auto-remove (--rm)");
-                            ui.checkbox(&mut d.publish_all, "Publish all (-P)");
+                            ui.add_space(6.0);
+                            preview = d.to_spec().preview();
+                            ui.label(RichText::new(&preview).monospace().small().weak());
                         });
-
-                        ui.add_space(6.0);
-                        preview = d.to_spec().preview();
-                        ui.label(RichText::new(&preview).monospace().small().weak());
-                    });
 
                     ui.add_space(10.0);
                     ui.horizontal(|ui| {
                         let can_run = !d.image.trim().is_empty();
-                        if ui.add_enabled(can_run, egui::Button::new("▶ Run")).clicked() {
+                        if ui
+                            .add_enabled(can_run, egui::Button::new("▶ Run"))
+                            .clicked()
+                        {
                             do_run = true;
                         }
                         if ui.button("Cancel").clicked() {
@@ -198,7 +208,11 @@ impl WslcDesktopApp {
                                     d.driver.clone()
                                 })
                                 .show_ui(ui, |ui| {
-                                    ui.selectable_value(&mut d.driver, "guest".to_string(), "guest");
+                                    ui.selectable_value(
+                                        &mut d.driver,
+                                        "guest".to_string(),
+                                        "guest",
+                                    );
                                     ui.selectable_value(&mut d.driver, "vhd".to_string(), "vhd");
                                 });
                             ui.end_row();
@@ -206,7 +220,10 @@ impl WslcDesktopApp {
                     ui.add_space(10.0);
                     ui.horizontal(|ui| {
                         let can = !d.name.trim().is_empty();
-                        if ui.add_enabled(can, egui::Button::new("➕ Create")).clicked() {
+                        if ui
+                            .add_enabled(can, egui::Button::new("➕ Create"))
+                            .clicked()
+                        {
                             create = true;
                         }
                         if ui.button("Cancel").clicked() {
@@ -251,7 +268,10 @@ impl WslcDesktopApp {
                     ui.add_space(10.0);
                     ui.horizontal(|ui| {
                         let can = !d.name.trim().is_empty();
-                        if ui.add_enabled(can, egui::Button::new("➕ Create")).clicked() {
+                        if ui
+                            .add_enabled(can, egui::Button::new("➕ Create"))
+                            .clicked()
+                        {
                             create = true;
                         }
                         if ui.button("Cancel").clicked() {
@@ -300,7 +320,11 @@ impl WslcDesktopApp {
                         });
 
                     ui.add_space(8.0);
-                    ui.label(RichText::new("国内镜像源 (点击套用注册表前缀)").small().strong());
+                    ui.label(
+                        RichText::new("国内镜像源 (点击套用注册表前缀)")
+                            .small()
+                            .strong(),
+                    );
                     ui.add_space(4.0);
                     // Clickable China-accessible registry mirrors. Clicking one
                     // rewrites the registry host of the current reference,
@@ -320,9 +344,11 @@ impl WslcDesktopApp {
 
                     ui.add_space(8.0);
                     ui.label(
-                        RichText::new("Pull runs in the background; watch the toast for the result.")
-                            .small()
-                            .weak(),
+                        RichText::new(
+                            "Pull runs in the background; watch the toast for the result.",
+                        )
+                        .small()
+                        .weak(),
                     );
                     ui.add_space(10.0);
                     ui.horizontal(|ui| {
@@ -440,9 +466,15 @@ impl WslcDesktopApp {
             return;
         }
         let (bg, fg) = if toast.is_error {
-            (Color32::from_rgb(0x5a, 0x1e, 0x1e), Color32::from_rgb(0xff, 0xd0, 0xd0))
+            (
+                Color32::from_rgb(0x5a, 0x1e, 0x1e),
+                Color32::from_rgb(0xff, 0xd0, 0xd0),
+            )
         } else {
-            (Color32::from_rgb(0x1e, 0x40, 0x2a), Color32::from_rgb(0xd0, 0xff, 0xdc))
+            (
+                Color32::from_rgb(0x1e, 0x40, 0x2a),
+                Color32::from_rgb(0xd0, 0xff, 0xdc),
+            )
         };
         let message = toast.message.clone();
 

@@ -3,7 +3,7 @@
 use egui::RichText;
 use egui_plot::{Line, Plot, PlotPoints};
 
-use crate::app::{DetailTab, Section, WslcDesktopApp};
+use crate::app::{stats_key, DetailTab, Section, WslcDesktopApp};
 use crate::poller::UiRequest;
 
 impl WslcDesktopApp {
@@ -126,10 +126,11 @@ impl WslcDesktopApp {
                     .desired_width(ui.available_width() - 160.0)
                     .font(egui::TextStyle::Monospace),
             );
-            let submit =
-                resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+            let submit = resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
             let can_run = running && !self.exec_command.trim().is_empty() && target.is_some();
-            let clicked = ui.add_enabled(can_run, egui::Button::new("▶ Run")).clicked();
+            let clicked = ui
+                .add_enabled(can_run, egui::Button::new("▶ Run"))
+                .clicked();
             if (submit || clicked) && can_run {
                 if let Some(t) = target.clone() {
                     self.exec_output = "running…".to_string();
@@ -171,7 +172,8 @@ impl WslcDesktopApp {
             ui.label("Select a running container to see live charts.");
             return;
         };
-        let Some(history) = self.stats_history.get(&id) else {
+        // 与 stats_by_id 相同：键按 12 位短 ID 归一，容忍 ≥3.x 的完整 ID。
+        let Some(history) = self.stats_history.get(&stats_key(&id)) else {
             ui.label("No stats yet — waiting for samples (container running?).");
             return;
         };

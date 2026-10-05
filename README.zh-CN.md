@@ -26,7 +26,7 @@
 | **实时监控** | 后台 2s 轮询 `wslc stats`，滚动保留采样点绘制趋势图；容器列表直接展示 CPU / Mem / Mem% / Net I/O / Block I/O / PIDs |
 | **体验** | 暗色 / 亮色主题切换（持久化）、**全局 UI 缩放滑块**（顶栏 `× UI`，80%–250% 实时调节，同时缩放布局与字体，默认 110%）、按名称 / 镜像 / 驱动过滤、危险操作二次确认、操作结果 Toast、底部状态栏（计数 + 实时/暂停 + N 秒前刷新）、状态色标、**内置中文字体**（Noto Sans SC 子集，命令描述等中文正常显示，不再出现方框）、**图标 / 符号全内置**（窗口图标 + 动作按钮 / 排序指示符均随字体打包，任何主机都不会出现方框） |
 
-> 状态映射（与 `lazywslc`/`lazywslcontainer` 交叉核对并在本机 wslc 2.9.3.0 上验证）：`1=Created`、`2=Running`、`3=Exited`、`4=Paused`。
+> 状态映射（与 `lazywslc`/`lazywslcontainer` 交叉核对并在本机 wslc 2.9.3.0 上验证）：`1=Created`、`2=Running`、`3=Exited`、`4=Paused`。wslc ≥3.x 的 `State` 改为字符串（`"exited"`）而非数字，两种编码均可解析（v0.2.4 起）。
 > **已知边界**：wslc 当前不提供 `pause`/`rename`、CVE/SBOM 扫描、文件拖拽挂载、Compose —— 这些能力在本工具中不做假命令模拟。
 
 ---
@@ -78,7 +78,7 @@
 
 ## 📦 环境要求
 
-- **Windows**，已安装并可用的 `wslc.exe`（本项目针对 **wslc 2.9.3.0** 验证）
+- **Windows**，已安装并可用的 `wslc.exe`（本项目针对 **wslc 2.9.3.0** 与 **3.0.1.0** 验证；两代 JSON 输出 —— 数组 + 数字字段 vs NDJSON + 字符串字段 —— 均可透明解析）
 - 构建需要 **Rust**（stable，`edition 2021`；开发时使用 rustc 1.95 / cargo 1.96）
 
 验证 wslc 是否可用：

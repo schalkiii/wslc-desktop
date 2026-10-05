@@ -357,9 +357,6 @@ mod tests {
     #[test]
     fn tokenize_keeps_bash_c_payload_together() {
         let args = tokenize(r#"run image bash -c "echo hi && ls""#);
-        assert_eq!(
-            args,
-            vec!["run", "image", "bash", "-c", "echo hi && ls"]
-        );
+        assert_eq!(args, vec!["run", "image", "bash", "-c", "echo hi && ls"]);
     }
 }

@@ -96,19 +96,14 @@ impl WslcClient {
         Err(anyhow!("wslc {}: {message}", args.join(" ")))
     }
 
-    /// Run wslc and deserialize its JSON stdout into `T`.
-    pub fn run_json<T: serde::de::DeserializeOwned>(&self, args: &[&str]) -> Result<T> {
+    /// Run wslc and deserialize its JSON stdout into a list of `T`.
+    ///
+    /// 兼容两代输出格式：≤2.x 是一个整体 JSON 数组；≥3.x 是 NDJSON
+    /// （每行一个对象，实测 3.0.1.0）。NDJSON 按行独立解析，个别异常行
+    /// 只损失该行数据；全部行都不可解析时才整体报错，避免 UI 清空。
+    pub fn run_json<T: serde::de::DeserializeOwned>(&self, args: &[&str]) -> Result<Vec<T>> {
         let output = self.run(args)?;
-        let trimmed = output.trim();
-        if trimmed.is_empty() {
-            // Represent "no output" as an empty JSON array/object for the caller
-            // by attempting to parse "[]"; if T isn't a sequence this errors
-            // clearly.
-            return serde_json::from_str("[]")
-                .context("wslc produced no output and it is not an empty list");
-        }
-        serde_json::from_str(trimmed)
-            .with_context(|| format!("failed to parse wslc JSON for `{}`", args.join(" ")))
+        parse_resource_list(&output, &args.join(" "))
     }
 
     /// Start a `wslc logs --follow` stream. Returns a [`LogStream`] delivering
@@ -177,9 +172,9 @@ impl WslcClient {
             command.creation_flags(CREATE_NO_WINDOW);
         }
 
-        let mut child = command
-            .spawn()
-            .with_context(|| format!("failed to spawn `{WSLC_BINARY}`; is WSL updated (wsl --update)?"))?;
+        let mut child = command.spawn().with_context(|| {
+            format!("failed to spawn `{WSLC_BINARY}`; is WSL updated (wsl --update)?")
+        })?;
 
         // Read pipes on separate threads to avoid deadlock on large output.
         let mut stdout_pipe = child.stdout.take().context("no stdout pipe")?;
@@ -252,4 +247,69 @@ fn strip_copyright_header(raw: &str) -> String {
         }
     }
     kept.join("\n")
+}
+
+/// Parse `--format json` output into `Vec<T>`，两种形态都接受：
+/// wslc ≤2.x 的整体 JSON 数组，以及 ≥3.x 的 NDJSON（每行一个对象，
+/// 行间可能有空行）。优先按数组解析；失败则逐行解析并跳过不可读行，
+/// 只有在所有行都失败时才返回错误（此时更可能是 schema 漂移而非个别脏行）。
+fn parse_resource_list<T: serde::de::DeserializeOwned>(raw: &str, command: &str) -> Result<Vec<T>> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Ok(Vec::new());
+    }
+    if let Ok(items) = serde_json::from_str::<Vec<T>>(trimmed) {
+        return Ok(items);
+    }
+    let mut items = Vec::new();
+    let mut unreadable = 0usize;
+    for line in trimmed.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        match serde_json::from_str::<T>(line) {
+            Ok(item) => items.push(item),
+            Err(_) => unreadable += 1,
+        }
+    }
+    if items.is_empty() {
+        return Err(anyhow!(
+            "failed to parse wslc JSON for `{command}` ({unreadable} unreadable line(s); unsupported schema?)"
+        ));
+    }
+    Ok(items)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_resource_list;
+
+    /// ≥3.x 的 NDJSON 多行对象（含对象间空行、CRLF 行尾）逐行解析。
+    #[test]
+    fn parse_resource_list_accepts_ndjson() {
+        let raw = "{\"ID\":\"a\",\"Names\":\"one\"}\r\n\r\n{\"ID\":\"b\",\"Names\":\"two\"}\r\n";
+        let items = parse_resource_list::<serde_json::Value>(raw, "list").unwrap();
+        assert_eq!(items.len(), 2);
+    }
+
+    /// ≤2.x 的整体 JSON 数组仍兼容。
+    #[test]
+    fn parse_resource_list_accepts_array() {
+        let raw = r#"[{"Id":"a"},{"Id":"b"}]"#;
+        let items = parse_resource_list::<serde_json::Value>(raw, "list").unwrap();
+        assert_eq!(items.len(), 2);
+    }
+
+    /// 空输出 → 空列表；全部行不可解析 → 报错而非静默清空。
+    #[test]
+    fn parse_resource_list_edge_cases() {
+        assert!(parse_resource_list::<serde_json::Value>("", "x")
+            .unwrap()
+            .is_empty());
+        assert!(parse_resource_list::<serde_json::Value>("   \r\n", "x")
+            .unwrap()
+            .is_empty());
+        assert!(parse_resource_list::<serde_json::Value>("not json", "x").is_err());
+    }
 }

@@ -26,7 +26,7 @@
 | **Live monitoring** | Background 2s `wslc stats` poll, scrolling samples for trend charts; container list shows CPU / Mem / Mem% / Net I/O / Block I/O / PIDs directly |
 | **Experience** | Dark / light theme toggle (persisted), **global UI-scale slider** (top bar `× UI`, 80%–250% live, scales layout + fonts together, defaults to 110%), filter by name / image / driver, danger-action confirmation, result toasts, bottom status bar (counts + live/paused + "updated Ns ago"), state color coding, **bundled CJK font** (Noto Sans SC subset so Chinese command descriptions render instead of tofu boxes), **all icons / symbols bundled** (window icon + action buttons + sort arrows ship with the font, so nothing boxes on any host) |
 
-> State mapping (cross-checked against `lazywslc`/`lazywslcontainer` and verified on local wslc 2.9.3.0): `1=Created`, `2=Running`, `3=Exited`, `4=Paused`.
+> State mapping (cross-checked against `lazywslc`/`lazywslcontainer` and verified on local wslc 2.9.3.0): `1=Created`, `2=Running`, `3=Exited`, `4=Paused`. wslc ≥3.x reports `State` as a string (`"exited"`) instead of a number; both encodings are accepted (v0.2.4).
 > **Known limits**: wslc currently offers no `pause`/`rename`, CVE/SBOM scanning, drag-and-drop volume mounts, or Compose — this tool does not fake those commands.
 
 ---
@@ -79,7 +79,7 @@
 
 ## 📦 Requirements
 
-- **Windows** with a working `wslc.exe` (validated against **wslc 2.9.3.0**)
+- **Windows** with a working `wslc.exe` (validated against **wslc 2.9.3.0** and **3.0.1.0**; both JSON generations — array + numeric fields vs NDJSON + string fields — are parsed transparently)
 - Building needs **Rust** (stable, `edition 2021`; developed on rustc 1.95 / cargo 1.96)
 
 Verify wslc is available:

@@ -182,7 +182,10 @@ pub fn spawn(ctx: egui::Context) -> WorkerHandle {
         }
     });
 
-    WorkerHandle { tx: ui_tx, rx: ui_rx }
+    WorkerHandle {
+        tx: ui_tx,
+        rx: ui_rx,
+    }
 }
 
 impl Worker {
@@ -309,7 +312,10 @@ impl Worker {
             }
             UiRequest::Pull { reference } => {
                 let label = format!("pull {reference}");
-                let result = self.client.pull_image(&reference).map_err(|e| e.to_string());
+                let result = self
+                    .client
+                    .pull_image(&reference)
+                    .map_err(|e| e.to_string());
                 let _ = self.tx.send(WorkerEvent::ActionDone { label, result });
                 self.poll_snapshot();
             }
@@ -343,30 +349,38 @@ impl Worker {
         match action {
             Action::Start(t) => (format!("start {t}"), unit(self.client.start_container(&t))),
             Action::Stop(t) => (format!("stop {t}"), unit(self.client.stop_container(&t))),
-            Action::Restart(t) => (format!("restart {t}"), unit(self.client.restart_container(&t))),
+            Action::Restart(t) => (
+                format!("restart {t}"),
+                unit(self.client.restart_container(&t)),
+            ),
             Action::Kill(t) => (format!("kill {t}"), unit(self.client.kill_container(&t))),
-            Action::RemoveContainer(t) => {
-                (format!("remove {t}"), unit(self.client.remove_container(&t, true)))
-            }
+            Action::RemoveContainer(t) => (
+                format!("remove {t}"),
+                unit(self.client.remove_container(&t, true)),
+            ),
             Action::PruneContainers => (
                 "prune containers".to_string(),
                 self.client.prune_containers().map_err(|e| e.to_string()),
             ),
-            Action::RemoveImage(t) => (format!("rmi {t}"), unit(self.client.remove_image(&t, true))),
+            Action::RemoveImage(t) => {
+                (format!("rmi {t}"), unit(self.client.remove_image(&t, true)))
+            }
             Action::PruneImages => (
                 "prune images".to_string(),
                 self.client.prune_images().map_err(|e| e.to_string()),
             ),
-            Action::RemoveVolume(t) => {
-                (format!("volume remove {t}"), unit(self.client.remove_volume(&t)))
-            }
+            Action::RemoveVolume(t) => (
+                format!("volume remove {t}"),
+                unit(self.client.remove_volume(&t)),
+            ),
             Action::PruneVolumes => (
                 "prune volumes".to_string(),
                 self.client.prune_volumes().map_err(|e| e.to_string()),
             ),
-            Action::RemoveNetwork(t) => {
-                (format!("network remove {t}"), unit(self.client.remove_network(&t)))
-            }
+            Action::RemoveNetwork(t) => (
+                format!("network remove {t}"),
+                unit(self.client.remove_network(&t)),
+            ),
             Action::PruneNetworks => (
                 "prune networks".to_string(),
                 self.client.prune_networks().map_err(|e| e.to_string()),

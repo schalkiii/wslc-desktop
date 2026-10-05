@@ -12,6 +12,15 @@ use crate::wslc::{Container, Image, Network, RunSpec, Stat, Volume};
 /// Max samples kept per container for the CPU/memory history plots.
 pub(crate) const MAX_HISTORY: usize = 60;
 
+/// Normalize a container id into the stats-map key.
+///
+/// `wslc list` 只给 12 位短 ID，而 ≥3.x 的 `stats` 返回 64 位完整 ID，
+/// 直接拿原串互查永远 miss；两边统一截前 12 位再对齐（≤2.x 两侧本就
+/// 一致，截短后同样成立）。
+pub(crate) fn stats_key(id: &str) -> String {
+    id.chars().take(12).collect()
+}
+
 /// eframe storage key for [`Settings`].
 const SETTINGS_KEY: &str = "wslc_desktop_settings";
 
@@ -300,7 +309,7 @@ impl WslcDesktopApp {
 
         // Slightly larger default text for a desktop dashboard feel.
         let mut style = (*cc.egui_ctx.style()).clone();
-        for (_text_style, font_id) in style.text_styles.iter_mut() {
+        for font_id in style.text_styles.values_mut() {
             font_id.size *= 1.05;
         }
         cc.egui_ctx.set_style(style);
@@ -315,7 +324,9 @@ impl WslcDesktopApp {
         // drag-to-rescale behave identically.
 
         let worker = poller::spawn(cc.egui_ctx.clone());
-        let _ = worker.tx.send(UiRequest::SetAutoRefresh(settings.auto_refresh));
+        let _ = worker
+            .tx
+            .send(UiRequest::SetAutoRefresh(settings.auto_refresh));
 
         Self {
             worker,
@@ -462,14 +473,16 @@ impl WslcDesktopApp {
         let mut seen = std::collections::HashSet::new();
         self.stats_by_id.clear();
         for stat in stats {
-            seen.insert(stat.id.clone());
+            // ≥3.x stats 的 ID 是 64 位完整 ID，统一截短后再作为键。
+            let key = stats_key(&stat.id);
+            seen.insert(key.clone());
             let cpu = stat.cpu_percent();
             let mem = stat.mem_used_bytes();
             self.stats_history
-                .entry(stat.id.clone())
+                .entry(key.clone())
                 .or_default()
                 .push(cpu, mem);
-            self.stats_by_id.insert(stat.id.clone(), stat);
+            self.stats_by_id.insert(key, stat);
         }
         // Drop history for containers that no longer report stats.
         self.stats_history.retain(|id, _| seen.contains(id));
@@ -591,7 +604,10 @@ impl WslcDesktopApp {
     }
 
     pub(crate) fn running_count(&self) -> usize {
-        self.containers.iter().filter(|c| c.state().is_running()).count()
+        self.containers
+            .iter()
+            .filter(|c| c.state().is_running())
+            .count()
     }
 
     /// Re-import the `wslc-menu.ps1` presets, appending only those whose name is
@@ -713,33 +729,141 @@ fn default_saved_commands() -> Vec<SavedCommand> {
         command: command.to_string(),
     };
     vec![
-        sc("qinglong", "青龙面板", r#"wslc run -d -v "C:\docker\qinglong\data:/ql/data" -p 8383:5700 -e QlBaseUrl="/" -e QlPort="5700" --name qinglong -h qinglong docker.1panel.live/whyour/qinglong:latest"#),
-        sc("cookiecloud", "Cookie Cloud", r#"wslc run -d -p 8082:8088 --name cookiecloud -e API_ROOT=/cookie docker.1panel.live/easychen/cookiecloud:latest"#),
-        sc("cross-seed", "Cross-Seed 辅种", r#"wslc run -d --name cross-seed -p 2468:2468 -v "C:\docker\cross-seed\config:/config" docker.1panel.live/crossseed/cross-seed:latest daemon"#),
-        sc("network-panel", "Net Panel 刷流", r#"wslc run -d --name network-panel -p 8080:80 docker.1panel.live/netart/network-panel:latest"#),
-        sc("openspeedtest", "OpenSpeedTest 测速", r#"wslc run --name openspeedtest -d -p 4000:3000 -p 4001:3001 docker.1panel.live/openspeedtest/latest"#),
-        sc("bili_tool_web", "B站工具箱", r#"wslc run -d --name bili_tool_web -t -v "C:\docker\bili_tool_web\Logs:/app/Logs" -v "C:\docker\bili_tool_web\config:/app/config" -p 2233:8080 -e TZ=Asia/Shanghai -e DailyTaskConfig__Cron="0 0 15 * * ?" ghcr.nju.edu.cn/raywangqvq/bili_tool_web"#),
-        sc("jackett", "Jackett 索引器", r#"wslc run -d --name jackett -e PUID=1000 -e PGID=1000 -e TZ=Etc/UTC -e AUTO_UPDATE=true -p 9117:9117 -v "C:\docker\jackett\config:/config" -v "C:\docker\jackett\downloads:/downloads" -v "C:\docker\mi-gpt\resolv.conf:/etc/resolv.conf" docker.1panel.live/linuxserver/jackett:latest"#),
-        sc("home-assistant", "Home Assistant", r#"wslc run -d --name home-assistant -e TZ=Asia/Shanghai -v "C:\docker\home_assistant\config:/config" -p 8123:8123 docker.1panel.live/homeassistant/home-assistant"#),
-        sc("IYUUPlus", "IYUUPlus 辅种", r#"wslc run -d -v "C:\docker\IYUU\db:/IYUU/db" -v "C:\Users\Schal\AppData\Local\qBittorrent\BT_backup:/BT_backup" -p 8787:8787 --name IYUUPlus docker.1panel.live/iyuucn/iyuuplus"#),
-        sc("IYUUPlus-dev", "IYUUPlus 开发版", r#"wslc run -itd -v "C:\docker\iyuu-dev\iyuu:/iyuu" -v "C:\docker\iyuu-dev\data:/data" -p 8780:8780 --name IYUUPlus-dev docker.1panel.live/iyuucn/iyuuplus-dev:latest"#),
-        sc("elmmb", "饿了么点赞", r#"wslc run -id --name elmmb -h elmmb -p 3002:3000 -v "C:\docker\elmmb:/etc/lb/Config" docker.1panel.live/luobook/elmmb:latest"#),
-        sc("github-rss-aggregator", "GitHub RSS 聚合", r#"wslc run -d --name github-rss-aggregator --network bridge -p 5000:5000 -e TZ=Asia/Shanghai -e http_proxy=http://<proxy-host>:7890 -e https_proxy=http://<proxy-host>:7890 -e all_proxy=http://<proxy-host>:7890 -v "C:\docker\github-rss-aggregator:/app" -w /app docker.1panel.live/library/python:3.11 bash -c "apt-get update && apt-get install -y git curl && rm -rf /tmp/repo && git clone https://github.com/NOwin111/GitHub-RSS-Aggregator.git /tmp/repo && cp -r /tmp/repo/* /app/ && pip install flask feedparser requests && python github_rss_aggregator.py""#),
-        sc("qdtoday", "QD今日签到", r#"wslc run -d -p 8923:80 -v "C:\docker\qdtoday\config:/usr/src/app/config" --name qdtoday docker.1panel.live/qdtoday/qd"#),
-        sc("quark-auto-save", "夸克自动转存", r#"wslc run -d -p 5005:5005 -e WEBUI_USERNAME=admin -e WEBUI_PASSWORD=<your-password> -v "C:\docker\quark-auto-save\config:/app/config" -v "C:\docker\quark-auto-save\media:/media" --name quark-auto-save registry.cn-shenzhen.aliyuncs.com/cp0204/quark-auto-save:latest"#),
-        sc("rabbitpro", "RabbitPro", r#"wslc run --name rabbitpro -p 5701:1234 -d -v "C:\docker\rabbit\data:/Rabbit/data" -it docker.1panel.live/ht944/rabbitpro:latest"#),
-        sc("peerbanhelper", "PeerBanHelper 封禁", r#"wslc run -d --name peerbanhelper -p 9898:9898 -v "C:\docker\peerbanhelper:/app/data/" registry.cn-hangzhou.aliyuncs.com/ghostchu/peerbanhelper"#),
-        sc("postgresql_mp", "PostgreSQL (MoviePilot)", r#"wslc run -d --name postgresql_mp -p 5433:5432 -e POSTGRES_DB=moviepilot -e POSTGRES_USER=moviepilot -e POSTGRES_PASSWORD="<your-password>" -v "C:\docker\postgresql_mp:/var/lib/postgresql" docker.1panel.live/library/postgres"#),
-        sc("redis_mp", "Redis (MoviePilot)", r#"wslc run --name redis_mp -p 6379:6379 -v "C:\docker\redis\data:/data" -d docker.1panel.live/library/redis redis-server --save 600 1 --requirepass "<your-password>""#),
-        sc("smartdns", "SmartDNS", r#"wslc run -d --name smartdns --network host -p 9053:9053/udp -p 6080:6080 -v "C:\docker\smartdns\data\etc\smartdns:/etc/smartdns" -v "C:\docker\smartdns\data\var\lib\smartdns:/var/lib/smartdns" -v "C:\docker\smartdns\data\var\log\smartdns:/var/log/smartdns" docker.1panel.live/pymumu/smartdns:latest"#),
-        sc("pt-accelerator", "PT加速器", r#"wslc run -d --name pt-accelerator --network host -v "C:\Windows\System32\drivers\etc\hosts:/etc/hosts" -v "C:\docker\PT-Accelerator\config:/app/config" -v "C:\docker\PT-Accelerator\logs:/app/logs" -e TZ=Asia/Shanghai docker.1panel.live/eternalcurse/pt-accelerator:latest"#),
-        sc("seedcross", "SeedCross", r#"wslc run -d --name seedcross --network host -v "C:\docker\seedcross\db:/code/seedcross\db" -p 8019:8019 docker.1panel.live/ccf2012/seedcross:latest"#),
-        sc("seedhound", "ReseedHound 自动补种", r#"wslc run -d --name seedhound -e SEEDHOUND_MODE=schedule -v "C:\docker\seedhound:/app" ghcr.io/schalkiii/reseedhound:latest"#),
-        sc("mtranserver", "MT翻译服务", r#"wslc run -d --name mtranserver -p 8989:8989 -v "C:\docker\mtranserver\models:/app/models" -v "C:\docker\mtranserver\config.ini:/app/config.ini" docker.1panel.live/xxnuo/mtranserver:latest"#),
-        sc("pansou-app", "Pansou 网盘搜索", r#"wslc run -d --name pansou-app -p 8111:80 -e DOMAIN=localhost -e PANSOU_PORT=8888 -e PANSOU_HOST=127.0.0.1 -e SOCKS5_PROXY=socks5://<proxy-host>:7890 -e HTTP_PROXY=http://<proxy-host>:7890 -e HTTPS_PROXY=https://<proxy-host>:7890 -v "pansou-data:/app/data" -v "pansou-logs:/app/logs" ghcr.nju.edu.cn/fish2018/pansou-web:latest"#),
-        sc("Reseed-Puppy-Dev", "Reseed Puppy Dev", r#"wslc run -d --name Reseed-Puppy-Dev -v "C:\docker\reseed-puppy-dev\database:/reseed-puppy/database" -v "C:\CommonTools\qBittorrent_4.6.7_portable\Profile\qBittorrent\data\BT_backup:/reseed-puppy/public/qb" -p 8091:1997 docker.1panel.live/szzhoubanxian/reseed-puppy:dev"#),
-        sc("reseed-puppy", "Reseed Puppy PHP", r#"wslc run -d --name reseed-puppy -v "C:\docker\reseed-puppy-php\database:/reseed-puppy-php/database" -v "C:\CommonTools\qBittorrent_4.6.7_portable\Profile\qBittorrent\data\BT_backup:/reseed-puppy-php/public/torrents" -p 8081:1919 docker.1panel.live/szzhoubanxian/reseed-puppy:latest"#),
-        sc("pt-invite-watcher", "PT邀请监控", r#"wslc run -d --name pt-invite-watcher -p 8003:8080 -v "C:\docker\pt_invite_watcher\data:/data" -e PTIW_DB_PATH="/data/ptiw.db" docker.1panel.live/helloworldz1024/pt-invite-watcher:latest"#),
+        sc(
+            "qinglong",
+            "青龙面板",
+            r#"wslc run -d -v "C:\docker\qinglong\data:/ql/data" -p 8383:5700 -e QlBaseUrl="/" -e QlPort="5700" --name qinglong -h qinglong docker.1panel.live/whyour/qinglong:latest"#,
+        ),
+        sc(
+            "cookiecloud",
+            "Cookie Cloud",
+            r#"wslc run -d -p 8082:8088 --name cookiecloud -e API_ROOT=/cookie docker.1panel.live/easychen/cookiecloud:latest"#,
+        ),
+        sc(
+            "cross-seed",
+            "Cross-Seed 辅种",
+            r#"wslc run -d --name cross-seed -p 2468:2468 -v "C:\docker\cross-seed\config:/config" docker.1panel.live/crossseed/cross-seed:latest daemon"#,
+        ),
+        sc(
+            "network-panel",
+            "Net Panel 刷流",
+            r#"wslc run -d --name network-panel -p 8080:80 docker.1panel.live/netart/network-panel:latest"#,
+        ),
+        sc(
+            "openspeedtest",
+            "OpenSpeedTest 测速",
+            r#"wslc run --name openspeedtest -d -p 4000:3000 -p 4001:3001 docker.1panel.live/openspeedtest/latest"#,
+        ),
+        sc(
+            "bili_tool_web",
+            "B站工具箱",
+            r#"wslc run -d --name bili_tool_web -t -v "C:\docker\bili_tool_web\Logs:/app/Logs" -v "C:\docker\bili_tool_web\config:/app/config" -p 2233:8080 -e TZ=Asia/Shanghai -e DailyTaskConfig__Cron="0 0 15 * * ?" ghcr.nju.edu.cn/raywangqvq/bili_tool_web"#,
+        ),
+        sc(
+            "jackett",
+            "Jackett 索引器",
+            r#"wslc run -d --name jackett -e PUID=1000 -e PGID=1000 -e TZ=Etc/UTC -e AUTO_UPDATE=true -p 9117:9117 -v "C:\docker\jackett\config:/config" -v "C:\docker\jackett\downloads:/downloads" -v "C:\docker\mi-gpt\resolv.conf:/etc/resolv.conf" docker.1panel.live/linuxserver/jackett:latest"#,
+        ),
+        sc(
+            "home-assistant",
+            "Home Assistant",
+            r#"wslc run -d --name home-assistant -e TZ=Asia/Shanghai -v "C:\docker\home_assistant\config:/config" -p 8123:8123 docker.1panel.live/homeassistant/home-assistant"#,
+        ),
+        sc(
+            "IYUUPlus",
+            "IYUUPlus 辅种",
+            r#"wslc run -d -v "C:\docker\IYUU\db:/IYUU/db" -v "C:\Users\Schal\AppData\Local\qBittorrent\BT_backup:/BT_backup" -p 8787:8787 --name IYUUPlus docker.1panel.live/iyuucn/iyuuplus"#,
+        ),
+        sc(
+            "IYUUPlus-dev",
+            "IYUUPlus 开发版",
+            r#"wslc run -itd -v "C:\docker\iyuu-dev\iyuu:/iyuu" -v "C:\docker\iyuu-dev\data:/data" -p 8780:8780 --name IYUUPlus-dev docker.1panel.live/iyuucn/iyuuplus-dev:latest"#,
+        ),
+        sc(
+            "elmmb",
+            "饿了么点赞",
+            r#"wslc run -id --name elmmb -h elmmb -p 3002:3000 -v "C:\docker\elmmb:/etc/lb/Config" docker.1panel.live/luobook/elmmb:latest"#,
+        ),
+        sc(
+            "github-rss-aggregator",
+            "GitHub RSS 聚合",
+            r#"wslc run -d --name github-rss-aggregator --network bridge -p 5000:5000 -e TZ=Asia/Shanghai -e http_proxy=http://<proxy-host>:7890 -e https_proxy=http://<proxy-host>:7890 -e all_proxy=http://<proxy-host>:7890 -v "C:\docker\github-rss-aggregator:/app" -w /app docker.1panel.live/library/python:3.11 bash -c "apt-get update && apt-get install -y git curl && rm -rf /tmp/repo && git clone https://github.com/NOwin111/GitHub-RSS-Aggregator.git /tmp/repo && cp -r /tmp/repo/* /app/ && pip install flask feedparser requests && python github_rss_aggregator.py""#,
+        ),
+        sc(
+            "qdtoday",
+            "QD今日签到",
+            r#"wslc run -d -p 8923:80 -v "C:\docker\qdtoday\config:/usr/src/app/config" --name qdtoday docker.1panel.live/qdtoday/qd"#,
+        ),
+        sc(
+            "quark-auto-save",
+            "夸克自动转存",
+            r#"wslc run -d -p 5005:5005 -e WEBUI_USERNAME=admin -e WEBUI_PASSWORD=<your-password> -v "C:\docker\quark-auto-save\config:/app/config" -v "C:\docker\quark-auto-save\media:/media" --name quark-auto-save registry.cn-shenzhen.aliyuncs.com/cp0204/quark-auto-save:latest"#,
+        ),
+        sc(
+            "rabbitpro",
+            "RabbitPro",
+            r#"wslc run --name rabbitpro -p 5701:1234 -d -v "C:\docker\rabbit\data:/Rabbit/data" -it docker.1panel.live/ht944/rabbitpro:latest"#,
+        ),
+        sc(
+            "peerbanhelper",
+            "PeerBanHelper 封禁",
+            r#"wslc run -d --name peerbanhelper -p 9898:9898 -v "C:\docker\peerbanhelper:/app/data/" registry.cn-hangzhou.aliyuncs.com/ghostchu/peerbanhelper"#,
+        ),
+        sc(
+            "postgresql_mp",
+            "PostgreSQL (MoviePilot)",
+            r#"wslc run -d --name postgresql_mp -p 5433:5432 -e POSTGRES_DB=moviepilot -e POSTGRES_USER=moviepilot -e POSTGRES_PASSWORD="<your-password>" -v "C:\docker\postgresql_mp:/var/lib/postgresql" docker.1panel.live/library/postgres"#,
+        ),
+        sc(
+            "redis_mp",
+            "Redis (MoviePilot)",
+            r#"wslc run --name redis_mp -p 6379:6379 -v "C:\docker\redis\data:/data" -d docker.1panel.live/library/redis redis-server --save 600 1 --requirepass "<your-password>""#,
+        ),
+        sc(
+            "smartdns",
+            "SmartDNS",
+            r#"wslc run -d --name smartdns --network host -p 9053:9053/udp -p 6080:6080 -v "C:\docker\smartdns\data\etc\smartdns:/etc/smartdns" -v "C:\docker\smartdns\data\var\lib\smartdns:/var/lib/smartdns" -v "C:\docker\smartdns\data\var\log\smartdns:/var/log/smartdns" docker.1panel.live/pymumu/smartdns:latest"#,
+        ),
+        sc(
+            "pt-accelerator",
+            "PT加速器",
+            r#"wslc run -d --name pt-accelerator --network host -v "C:\Windows\System32\drivers\etc\hosts:/etc/hosts" -v "C:\docker\PT-Accelerator\config:/app/config" -v "C:\docker\PT-Accelerator\logs:/app/logs" -e TZ=Asia/Shanghai docker.1panel.live/eternalcurse/pt-accelerator:latest"#,
+        ),
+        sc(
+            "seedcross",
+            "SeedCross",
+            r#"wslc run -d --name seedcross --network host -v "C:\docker\seedcross\db:/code/seedcross\db" -p 8019:8019 docker.1panel.live/ccf2012/seedcross:latest"#,
+        ),
+        sc(
+            "seedhound",
+            "ReseedHound 自动补种",
+            r#"wslc run -d --name seedhound -e SEEDHOUND_MODE=schedule -v "C:\docker\seedhound:/app" ghcr.io/schalkiii/reseedhound:latest"#,
+        ),
+        sc(
+            "mtranserver",
+            "MT翻译服务",
+            r#"wslc run -d --name mtranserver -p 8989:8989 -v "C:\docker\mtranserver\models:/app/models" -v "C:\docker\mtranserver\config.ini:/app/config.ini" docker.1panel.live/xxnuo/mtranserver:latest"#,
+        ),
+        sc(
+            "pansou-app",
+            "Pansou 网盘搜索",
+            r#"wslc run -d --name pansou-app -p 8111:80 -e DOMAIN=localhost -e PANSOU_PORT=8888 -e PANSOU_HOST=127.0.0.1 -e SOCKS5_PROXY=socks5://<proxy-host>:7890 -e HTTP_PROXY=http://<proxy-host>:7890 -e HTTPS_PROXY=https://<proxy-host>:7890 -v "pansou-data:/app/data" -v "pansou-logs:/app/logs" ghcr.nju.edu.cn/fish2018/pansou-web:latest"#,
+        ),
+        sc(
+            "Reseed-Puppy-Dev",
+            "Reseed Puppy Dev",
+            r#"wslc run -d --name Reseed-Puppy-Dev -v "C:\docker\reseed-puppy-dev\database:/reseed-puppy/database" -v "C:\CommonTools\qBittorrent_4.6.7_portable\Profile\qBittorrent\data\BT_backup:/reseed-puppy/public/qb" -p 8091:1997 docker.1panel.live/szzhoubanxian/reseed-puppy:dev"#,
+        ),
+        sc(
+            "reseed-puppy",
+            "Reseed Puppy PHP",
+            r#"wslc run -d --name reseed-puppy -v "C:\docker\reseed-puppy-php\database:/reseed-puppy-php/database" -v "C:\CommonTools\qBittorrent_4.6.7_portable\Profile\qBittorrent\data\BT_backup:/reseed-puppy-php/public/torrents" -p 8081:1919 docker.1panel.live/szzhoubanxian/reseed-puppy:latest"#,
+        ),
+        sc(
+            "pt-invite-watcher",
+            "PT邀请监控",
+            r#"wslc run -d --name pt-invite-watcher -p 8003:8080 -v "C:\docker\pt_invite_watcher\data:/data" -e PTIW_DB_PATH="/data/ptiw.db" docker.1panel.live/helloworldz1024/pt-invite-watcher:latest"#,
+        ),
     ]
 }
 
@@ -750,7 +874,7 @@ pub(crate) fn state_color(state: crate::wslc::ContainerState) -> Color32 {
         Running => Color32::from_rgb(0x3f, 0xb9, 0x50), // green
         Exited => Color32::from_rgb(0x9a, 0x9a, 0x9a),  // grey
         Paused => Color32::from_rgb(0xe0, 0xa0, 0x30),  // amber
-        Created => Color32::from_rgb(0x4a, 0x9e, 0xff),  // blue
+        Created => Color32::from_rgb(0x4a, 0x9e, 0xff), // blue
         Unknown(_) => Color32::from_rgb(0xc0, 0x50, 0x50),
     }
 }

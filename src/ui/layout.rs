@@ -3,7 +3,7 @@
 use egui::{Align, Layout, RichText};
 
 use crate::app::{
-    state_color, CommandSortKey, ContainerSortKey, DetailTab, NetworkDialog, PullDialog,
+    state_color, stats_key, CommandSortKey, ContainerSortKey, DetailTab, NetworkDialog, PullDialog,
     RunDialog, Section, VolumeDialog, WslcDesktopApp,
 };
 use crate::poller::{Action, UiRequest};
@@ -21,7 +21,11 @@ impl WslcDesktopApp {
 
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     // Theme toggle.
-                    let theme_icon = if self.settings.dark_mode { "☀" } else { "🌙" };
+                    let theme_icon = if self.settings.dark_mode {
+                        "☀"
+                    } else {
+                        "🌙"
+                    };
                     if ui
                         .button(theme_icon)
                         .on_hover_text("Toggle light / dark theme")
@@ -44,7 +48,9 @@ impl WslcDesktopApp {
                                     .suffix("× UI"),
                             )
                             .on_hover_text("Global UI scale — affects layout and font size");
-                        if scale_resp.drag_stopped() || (scale_resp.changed() && !scale_resp.dragged()) {
+                        if scale_resp.drag_stopped()
+                            || (scale_resp.changed() && !scale_resp.dragged())
+                        {
                             ctx.set_pixels_per_point(self.settings.ui_scale);
                         }
                     });
@@ -96,15 +102,33 @@ impl WslcDesktopApp {
             .show(ctx, |ui| {
                 ui.add_space(8.0);
                 let running = self.running_count();
-                self.nav_item(ui, Section::Containers, "📦 Containers", self.containers.len(), Some(running));
+                self.nav_item(
+                    ui,
+                    Section::Containers,
+                    "📦 Containers",
+                    self.containers.len(),
+                    Some(running),
+                );
                 self.nav_item(ui, Section::Images, "🖼 Images", self.images.len(), None);
                 self.nav_item(ui, Section::Volumes, "💾 Volumes", self.volumes.len(), None);
-                self.nav_item(ui, Section::Networks, "🌐 Networks", self.networks.len(), None);
+                self.nav_item(
+                    ui,
+                    Section::Networks,
+                    "🌐 Networks",
+                    self.networks.len(),
+                    None,
+                );
 
                 ui.add_space(6.0);
                 ui.separator();
                 ui.add_space(6.0);
-                self.nav_item(ui, Section::Commands, "⭐ Commands", self.saved_commands.len(), None);
+                self.nav_item(
+                    ui,
+                    Section::Commands,
+                    "⭐ Commands",
+                    self.saved_commands.len(),
+                    None,
+                );
 
                 ui.add_space(12.0);
                 ui.separator();
@@ -165,8 +189,16 @@ impl WslcDesktopApp {
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     if let Some(t) = self.last_update {
                         let secs = t.elapsed().as_secs();
-                        let live = if self.settings.auto_refresh { "live" } else { "paused" };
-                        ui.label(RichText::new(format!("{live} · updated {secs}s ago")).small().weak());
+                        let live = if self.settings.auto_refresh {
+                            "live"
+                        } else {
+                            "paused"
+                        };
+                        ui.label(
+                            RichText::new(format!("{live} · updated {secs}s ago"))
+                                .small()
+                                .weak(),
+                        );
                     }
                 });
             });
@@ -230,19 +262,21 @@ impl WslcDesktopApp {
             .iter()
             .filter(|c| self.filter_matches(&[&c.name, &c.image]))
             .map(|c| {
-                let stat = self.stats_by_id.get(&c.id);
+                let stat = self.stats_by_id.get(&stats_key(&c.id));
                 Row {
                     id: c.id.clone(),
                     name: c.display_name(),
                     image: c.image.clone(),
                     state: c.state(),
                     created: relative_time(c.created_at),
-                    changed: relative_time(c.state_changed_at),
-                    ports: c
-                        .ports
-                        .iter()
-                        .map(|p| (p.display(), p.host_port))
-                        .collect(),
+                    // ≥3.x 的 Status 行（如 "Exited (255) 21 minutes ago"）比相对
+                    // 时间信息更准；≤2.x 无该字段时回退到相对时间。
+                    changed: if c.status.is_empty() {
+                        relative_time(c.state_changed_at)
+                    } else {
+                        c.status.clone()
+                    },
+                    ports: c.ports.iter().map(|p| (p.display(), p.host_port)).collect(),
                     target: c.target(),
                     running: c.state().is_running(),
                     cpu: stat.map(|s| s.cpu_perc.clone()).unwrap_or_else(dash),
@@ -351,7 +385,8 @@ impl WslcDesktopApp {
                         ui.end_row();
 
                         for row in rows {
-                            let selected = self.selected_container.as_deref() == Some(row.id.as_str());
+                            let selected =
+                                self.selected_container.as_deref() == Some(row.id.as_str());
 
                             ui.colored_label(state_color(row.state), "●")
                                 .on_hover_text(format!("changed {}", row.changed));
@@ -404,12 +439,24 @@ impl WslcDesktopApp {
                             ui.horizontal(|ui| {
                                 if row.running {
                                     if ui.small_button("⏹").on_hover_text("Stop").clicked() {
-                                        self.send(UiRequest::Action(Action::Stop(row.target.clone())));
+                                        self.send(UiRequest::Action(Action::Stop(
+                                            row.target.clone(),
+                                        )));
                                     }
-                                    if ui.small_button("🔄").on_hover_text("Restart (stop+start)").clicked() {
-                                        self.send(UiRequest::Action(Action::Restart(row.target.clone())));
+                                    if ui
+                                        .small_button("🔄")
+                                        .on_hover_text("Restart (stop+start)")
+                                        .clicked()
+                                    {
+                                        self.send(UiRequest::Action(Action::Restart(
+                                            row.target.clone(),
+                                        )));
                                     }
-                                    if ui.small_button("💀").on_hover_text("Kill (SIGKILL)").clicked() {
+                                    if ui
+                                        .small_button("💀")
+                                        .on_hover_text("Kill (SIGKILL)")
+                                        .clicked()
+                                    {
                                         self.confirm(
                                             format!("Kill container \"{}\"?", row.name),
                                             Action::Kill(row.target.clone()),
@@ -470,15 +517,26 @@ impl WslcDesktopApp {
                     .spacing([12.0, 8.0])
                     .min_col_width(50.0)
                     .show(ui, |ui| {
-                        for h in ["Repository:Tag", "ID", "Size", "Created", "In Use", "Actions"] {
+                        for h in [
+                            "Repository:Tag",
+                            "ID",
+                            "Size",
+                            "Created",
+                            "In Use",
+                            "Actions",
+                        ] {
                             ui.label(RichText::new(h).strong());
                         }
                         ui.end_row();
 
                         for (reference, short_id, size, created, in_use) in rows {
-                            let selected = self.selected_image.as_deref() == Some(reference.as_str());
+                            let selected =
+                                self.selected_image.as_deref() == Some(reference.as_str());
                             if ui
-                                .selectable_label(selected, RichText::new(truncate(&reference, 48)).strong())
+                                .selectable_label(
+                                    selected,
+                                    RichText::new(truncate(&reference, 48)).strong(),
+                                )
                                 .on_hover_text(&reference)
                                 .clicked()
                             {
@@ -506,9 +564,14 @@ impl WslcDesktopApp {
                             }
                             ui.horizontal(|ui| {
                                 if ui.small_button("▶ Run…").clicked() {
-                                    self.run_dialog = Some(RunDialog::with_image(reference.clone()));
+                                    self.run_dialog =
+                                        Some(RunDialog::with_image(reference.clone()));
                                 }
-                                if ui.small_button("📋").on_hover_text("Copy reference").clicked() {
+                                if ui
+                                    .small_button("📋")
+                                    .on_hover_text("Copy reference")
+                                    .clicked()
+                                {
                                     let r = reference.clone();
                                     self.copy_to_clipboard(ui.ctx(), r);
                                 }
@@ -529,7 +592,10 @@ impl WslcDesktopApp {
                         self.pull_dialog = Some(PullDialog::default());
                     }
                     if ui.button("🧹 Prune unused images").clicked() {
-                        self.confirm("Remove all dangling images?".to_string(), Action::PruneImages);
+                        self.confirm(
+                            "Remove all dangling images?".to_string(),
+                            Action::PruneImages,
+                        );
                     }
                 });
             });
@@ -561,7 +627,10 @@ impl WslcDesktopApp {
                         for (name, driver) in rows {
                             let selected = self.selected_volume.as_deref() == Some(name.as_str());
                             if ui
-                                .selectable_label(selected, RichText::new(truncate(&name, 44)).monospace())
+                                .selectable_label(
+                                    selected,
+                                    RichText::new(truncate(&name, 44)).monospace(),
+                                )
                                 .on_hover_text(&name)
                                 .clicked()
                             {
@@ -574,7 +643,11 @@ impl WslcDesktopApp {
                                     let n = name.clone();
                                     self.copy_to_clipboard(ui.ctx(), n);
                                 }
-                                if ui.small_button("🗑").on_hover_text("Remove volume").clicked() {
+                                if ui
+                                    .small_button("🗑")
+                                    .on_hover_text("Remove volume")
+                                    .clicked()
+                                {
                                     self.confirm(
                                         format!("Remove volume \"{}\"?", truncate(&name, 24)),
                                         Action::RemoveVolume(name.clone()),
@@ -594,7 +667,10 @@ impl WslcDesktopApp {
                         });
                     }
                     if ui.button("🧹 Prune unused volumes").clicked() {
-                        self.confirm("Remove all unused volumes?".to_string(), Action::PruneVolumes);
+                        self.confirm(
+                            "Remove all unused volumes?".to_string(),
+                            Action::PruneVolumes,
+                        );
                     }
                 });
             });
@@ -606,7 +682,14 @@ impl WslcDesktopApp {
             .networks
             .iter()
             .filter(|n| self.filter_matches(&[&n.name, &n.driver]))
-            .map(|n| (n.display_name(), n.short_id(), n.driver.clone(), n.scope.clone()))
+            .map(|n| {
+                (
+                    n.display_name(),
+                    n.short_id(),
+                    n.driver.clone(),
+                    n.scope.clone(),
+                )
+            })
             .collect();
 
         egui::ScrollArea::both()
@@ -630,7 +713,10 @@ impl WslcDesktopApp {
                         for (name, short_id, driver, scope) in rows {
                             let selected = self.selected_network.as_deref() == Some(name.as_str());
                             if ui
-                                .selectable_label(selected, RichText::new(truncate(&name, 40)).strong())
+                                .selectable_label(
+                                    selected,
+                                    RichText::new(truncate(&name, 40)).strong(),
+                                )
                                 .clicked()
                             {
                                 self.selected_network = Some(name.clone());
@@ -639,7 +725,11 @@ impl WslcDesktopApp {
                             ui.label(RichText::new(short_id).monospace().weak());
                             ui.label(driver);
                             ui.label(scope);
-                            if ui.small_button("🗑").on_hover_text("Remove network").clicked() {
+                            if ui
+                                .small_button("🗑")
+                                .on_hover_text("Remove network")
+                                .clicked()
+                            {
                                 self.confirm(
                                     format!("Remove network \"{name}\"?"),
                                     Action::RemoveNetwork(name.clone()),
@@ -655,7 +745,10 @@ impl WslcDesktopApp {
                         self.network_dialog = Some(NetworkDialog::default());
                     }
                     if ui.button("🧹 Prune unused networks").clicked() {
-                        self.confirm("Remove all unused networks?".to_string(), Action::PruneNetworks);
+                        self.confirm(
+                            "Remove all unused networks?".to_string(),
+                            Action::PruneNetworks,
+                        );
                     }
                 });
             });
