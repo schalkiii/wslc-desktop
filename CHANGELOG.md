@@ -3,6 +3,25 @@
 All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.2.6] - 2026-10-06
+
+### Changed
+
+- **Local preset override file.** Personal commands carrying real credentials
+  no longer need to live in the repo: a gitignored `presets.local.json` placed
+  next to the exe (or in the working directory) overrides/extends the builtin
+  placeholder presets by name. Malformed or empty files fall back to builtin.
+- **History scrub.** All git history on the remote was rewritten with
+  `git filter-repo --replace-text` to remove the previously leaked passwords
+  and intranet proxy IPs (commit hashes before this release changed).
+- README (EN/zh) document the override mechanism; test plan updated.
+
+### Fixed
+
+- Regression guard now targets the builtin placeholder list; new tests cover
+  preset merging (override by name / append) and local-file JSON parsing
+  (47 tests total).
+
 ## [0.2.5] - 2026-10-06
 
 ### Security

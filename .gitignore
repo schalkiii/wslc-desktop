@@ -17,3 +17,7 @@ Thumbs.db
 # Local extraction / scratch
 /_extract/
 *.tgz
+
+# Local-only preset overrides: real credentials / intranet addresses stay
+# out of git; the repo ships placeholder presets in src/app.rs instead.
+/presets.local.json

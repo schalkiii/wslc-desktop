@@ -722,9 +722,74 @@ fn apply_theme(ctx: &egui::Context, dark: bool) {
     });
 }
 
-/// The seed library imported from `wslc-menu.ps1`: 27 homelab containers, each a
-/// full `wslc run …` command line ready to run or edit.
+/// Local-only preset override file (never committed; see `.gitignore`).
+///
+/// 放在 exe 同目录或工作目录下即可整体接管/补充内置预设，用于保存含真实
+/// 凭据与内网地址的个人命令——这类内容不进 git，仓库里只有占位符版本。
+const LOCAL_PRESETS_FILE: &str = "presets.local.json";
+
+/// The effective preset library: builtin seeds overridden/extended by any
+/// local `presets.local.json` entries (matched by name).
 fn default_saved_commands() -> Vec<SavedCommand> {
+    let local = load_local_presets().unwrap_or_default();
+    merge_presets(builtin_presets(), local)
+}
+
+/// Candidate directories for [`LOCAL_PRESETS_FILE`]: the exe's folder first
+/// (portable layout), then the working directory (dev `cargo run` layout).
+fn local_preset_dirs() -> Vec<std::path::PathBuf> {
+    let mut dirs = Vec::new();
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            dirs.push(parent.to_path_buf());
+        }
+    }
+    if let Ok(cwd) = std::env::current_dir() {
+        dirs.push(cwd);
+    }
+    dirs
+}
+
+/// Read and parse the local override file. Returns `None` when absent;
+/// a malformed or empty file is ignored (falling back to builtin) instead of
+/// locking the user out of a usable library.
+fn load_local_presets() -> Option<Vec<SavedCommand>> {
+    for dir in local_preset_dirs() {
+        let path = dir.join(LOCAL_PRESETS_FILE);
+        if let Ok(text) = std::fs::read_to_string(&path) {
+            if let Ok(presets) = parse_presets_json(&text) {
+                if !presets.is_empty() {
+                    return Some(presets);
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Parse the local override JSON (an array of SavedCommand objects).
+fn parse_presets_json(text: &str) -> serde_json::Result<Vec<SavedCommand>> {
+    serde_json::from_str(text)
+}
+
+/// Overlay `local` entries onto `builtin`: same-name entries replace the
+/// builtin seed (that is how real credentials override placeholders), new
+/// names are appended in order.
+fn merge_presets(builtin: Vec<SavedCommand>, local: Vec<SavedCommand>) -> Vec<SavedCommand> {
+    let mut merged = builtin;
+    for entry in local {
+        match merged.iter_mut().find(|p| p.name == entry.name) {
+            Some(slot) => *slot = entry,
+            None => merged.push(entry),
+        }
+    }
+    merged
+}
+
+/// The builtin seed library imported from `wslc-menu.ps1`: 27 homelab
+/// containers, each a full `wslc run …` command line ready to run or edit.
+/// 真实凭据/内网地址一律占位化后入库；个人真实值放 presets.local.json。
+fn builtin_presets() -> Vec<SavedCommand> {
     let sc = |name: &str, description: &str, command: &str| SavedCommand {
         name: name.to_string(),
         description: description.to_string(),
@@ -1004,7 +1069,7 @@ mod tests {
     /// 且每条都必须是可直接一键运行的 `wslc run …` 行。
     #[test]
     fn saved_command_presets_are_sanitized_and_runnable() {
-        for preset in default_saved_commands() {
+        for preset in builtin_presets() {
             assert!(
                 !preset.command.contains("5329800"),
                 "preset `{}` leaks a password",
@@ -1021,5 +1086,52 @@ mod tests {
                 preset.name
             );
         }
+    }
+
+    /// 本地覆盖文件按 name 替换同名内置项、新名字按序追加。
+    #[test]
+    fn merge_presets_overrides_by_name_and_appends_new() {
+        let builtin = vec![
+            SavedCommand {
+                name: "a".into(),
+                description: "old a".into(),
+                command: "wslc run -d --name a img-a".into(),
+            },
+            SavedCommand {
+                name: "b".into(),
+                description: "b".into(),
+                command: "wslc run -d --name b img-b".into(),
+            },
+        ];
+        let local = vec![
+            SavedCommand {
+                name: "a".into(),
+                description: "real a".into(),
+                command: "wslc run -d --name a img-a -e PASSWORD=x".into(),
+            },
+            SavedCommand {
+                name: "c".into(),
+                description: "new c".into(),
+                command: "wslc run -d --name c img-c".into(),
+            },
+        ];
+        let merged = merge_presets(builtin, local);
+        assert_eq!(merged.len(), 3);
+        assert_eq!(merged[0].description, "real a");
+        assert_eq!(merged[1].description, "b");
+        assert_eq!(merged[2].description, "new c");
+    }
+
+    /// 本地覆盖文件解析：合法数组成功；坏 JSON 报错（由调用方回退内置）。
+    #[test]
+    fn parse_presets_json_validates_shape() {
+        let good = r#"[
+            {"name":"redis_mp","description":"Redis","command":"wslc run --name redis_mp --requirepass \"secret\""}
+        ]"#;
+        let presets = parse_presets_json(good).unwrap();
+        assert_eq!(presets.len(), 1);
+        assert_eq!(presets[0].name, "redis_mp");
+        assert!(parse_presets_json("not json").is_err());
+        assert!(parse_presets_json("[]").unwrap().is_empty());
     }
 }
