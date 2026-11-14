@@ -34,6 +34,73 @@ impl WslcDesktopApp {
                         self.toggle_theme(ctx);
                     }
 
+                    // Settings menu: login autostart + tray behaviour.
+                    ui.menu_button("⚙", |ui| {
+                        ui.set_min_width(300.0);
+                        let mut autostart = self.settings.autostart_enabled;
+                        if ui
+                            .checkbox(&mut autostart, "Start with Windows")
+                            .on_hover_text(
+                                "Register a login entry (HKCU Run key) — no admin rights needed",
+                            )
+                            .changed()
+                        {
+                            self.settings.autostart_enabled = autostart;
+                            // Autostart pairs naturally with living in the tray.
+                            if autostart {
+                                self.settings.close_to_tray = true;
+                            }
+                            self.apply_autostart();
+                        }
+                        let mut silent = self.settings.autostart_silent;
+                        if ui
+                            .checkbox(&mut silent, "Start silently to tray")
+                            .on_hover_text("At login: start hidden, tray icon only")
+                            .changed()
+                        {
+                            self.settings.autostart_silent = silent;
+                            if self.settings.autostart_enabled {
+                                self.apply_autostart();
+                            }
+                        }
+                        let mut close_to_tray = self.settings.close_to_tray;
+                        if ui
+                            .checkbox(&mut close_to_tray, "Close window to tray")
+                            .on_hover_text(
+                                "The close button hides the window; quit via the tray menu",
+                            )
+                            .changed()
+                        {
+                            self.settings.close_to_tray = close_to_tray;
+                        }
+                        let mut exit_after = self.settings.exit_after_autostart;
+                        if ui
+                            .checkbox(&mut exit_after, "Quit when autostart containers are up")
+                            .on_hover_text(
+                                "Login starts only: exit once every autostart-checked container is running",
+                            )
+                            .changed()
+                        {
+                            self.settings.exit_after_autostart = exit_after;
+                        }
+                        ui.separator();
+                        match crate::autostart::registered_command() {
+                            Some(command) => {
+                                ui.label(
+                                    RichText::new(format!("Run key: {}", truncate(&command, 46)))
+                                        .small()
+                                        .weak(),
+                                )
+                                .on_hover_text(command);
+                            }
+                            None => {
+                                ui.label(RichText::new("Run key: not registered").small().weak());
+                            }
+                        }
+                    })
+                    .response
+                    .on_hover_text("Autostart / tray settings");
+
                     // Global UI scale (scales layout + fonts together).
                     // Applied on drag release only: re-scaling mid-drag makes
                     // the slider fight its own cursor and snap back, so the
@@ -250,6 +317,8 @@ impl WslcDesktopApp {
             pids_u: u32,
             created_at: i64,
             state_ord: u8,
+            // Whether the container is checked for "start on app autostart".
+            autostart: bool,
         }
         let mut rows: Vec<Row> = self
             .containers
@@ -293,6 +362,7 @@ impl WslcDesktopApp {
                         crate::wslc::ContainerState::Exited => 3,
                         crate::wslc::ContainerState::Unknown(_) => 4,
                     },
+                    autostart: self.container_autostart(&c.display_name()),
                 }
             })
             .collect();
@@ -322,11 +392,14 @@ impl WslcDesktopApp {
             });
         }
 
+        // Deferred autostart-checkbox edits (applied after the grid borrow ends).
+        let mut auto_toggle: Option<(String, bool)> = None;
+
         egui::ScrollArea::both()
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 egui::Grid::new("containers_grid")
-                    .num_columns(13)
+                    .num_columns(14)
                     .striped(true)
                     .spacing([12.0, 8.0])
                     .min_col_width(46.0)
@@ -347,6 +420,7 @@ impl WslcDesktopApp {
                             ("PIDs", Some(CSK::Pids)),
                             ("Created", Some(CSK::Created)),
                             ("Ports", None),
+                            ("Auto", None),
                             ("Actions", None),
                         ];
                         for (label, key) in headers {
@@ -430,6 +504,19 @@ impl WslcDesktopApp {
                                 }
                             });
 
+                            // Autostart checkbox: start this container when the
+                            // app itself is auto-started at login.
+                            let mut autostart = row.autostart;
+                            if ui
+                                .checkbox(&mut autostart, "")
+                                .on_hover_text(
+                                    "Start this container when the app auto-starts at login",
+                                )
+                                .changed()
+                            {
+                                auto_toggle = Some((row.name.clone(), autostart));
+                            }
+
                             ui.horizontal(|ui| {
                                 if row.running {
                                     if ui.small_button("⏹").on_hover_text("Stop").clicked() {
@@ -482,6 +569,11 @@ impl WslcDesktopApp {
                     );
                 }
             });
+
+        // Apply deferred autostart-checkbox edits.
+        if let Some((name, on)) = auto_toggle {
+            self.set_container_autostart(&name, on);
+        }
     }
 
     fn image_table(&mut self, ui: &mut egui::Ui) {

@@ -26,6 +26,8 @@
 | **Live monitoring** | Background 2s `wslc stats` poll, scrolling samples for trend charts; container list shows CPU / Mem / Mem% / Net I/O / Block I/O / PIDs directly |
 | **Experience** | Dark / light theme toggle (persisted), **global UI-scale slider** (top bar `× UI`, 80%–250% live, scales layout + fonts together, defaults to 110%), filter by name / image / driver, danger-action confirmation, result toasts, bottom status bar (counts + live/paused + "updated Ns ago"), state color coding, **bundled CJK font** (Noto Sans SC subset so Chinese command descriptions render instead of tofu boxes), **all icons / symbols bundled** (window icon + action buttons + sort arrows ship with the font, so nothing boxes on any host) |
 
+| **Autostart & tray** | **Start with Windows** via the per-user `HKCU\…\Run` key (no admin rights), **silent login start** (tray icon only, no window flash), notification-area icon (left-click shows the window; right-click menu: show / hide / quit), **close-to-tray** (the × button hides the window instead of quitting), **per-container autostart checkboxes** in the `Auto` column (checked containers are started when the app itself auto-starts at login), and **quit-after-autostart** (exit once every autostart container is running; 180 s give-up timeout) |
+
 > State mapping (cross-checked against `lazywslc`/`lazywslcontainer` and verified on local wslc 2.9.3.0): `1=Created`, `2=Running`, `3=Exited`, `4=Paused`. wslc ≥3.x reports `State` as a string (`"exited"`) instead of a number; both encodings are accepted (v0.2.4).
 > **Known limits**: wslc currently offers no `pause`/`rename`, CVE/SBOM scanning, drag-and-drop volume mounts, or Compose — this tool does not fake those commands.
 
@@ -102,6 +104,11 @@ cargo build --release
 # Output: target/release/wslc-desktop.exe
 ```
 
+> **Launch flags** (what the login Run-key entry passes; also usable manually):
+> `--autostart` — start the autostart-checked containers on launch (and honour
+> "quit when they are up"); `--silent` — start hidden, tray icon only.
+> Both are optional; running the exe with no flags is the normal interactive mode.
+
 > **Domestic network note**: the official crates.io CDN can be very slow on some networks. The repo ships a `.cargo/config.toml` that points crates.io at the **rsproxy.cn** mirror (sparse index + crate download). Delete that file if your environment can reach the official source directly.
 >
 > **Release builds (CI)**: pushing a `v*` tag triggers `.github/workflows/release.yml`, which compiles on `windows-latest` using upstream crates.io and publishes `wslc-desktop.exe` as a Release asset.
@@ -126,8 +133,10 @@ wslc-desktop/
 ├── docs/
 │   └── 竞品拆解与技术方案.md      # competitor teardown + architecture/tech-choice design doc (zh)
 ├── src/
-│   ├── main.rs                 # eframe entry point
+│   ├── main.rs                 # eframe entry point + launch-flag parsing
 │   ├── app.rs                  # app state, event loop, top-level layout
+│   ├── autostart.rs            # HKCU Run-key login entry + --autostart/--silent flags
+│   ├── tray.rs                 # notification-area icon + context menu
 │   ├── poller.rs               # background worker thread (poll + request handling)
 │   ├── wslc/                   # GUI-agnostic wslc backend
 │   │   ├── client.rs           #   subprocess exec, timeout, header stripping
@@ -176,6 +185,12 @@ See [`docs/竞品拆解与技术方案.md`](docs/竞品拆解与技术方案.md)
   - **Click-to-sort headers** on the container table and the Saved Commands table (click again to toggle asc/desc).
   - Window icon + action buttons + sort arrows all bundled with the font, so nothing boxes on any host.
   - Top-bar `× UI` slider for **global UI scaling** (80%–250%, defaults to 110%), scaling layout + fonts together and persisting.
+- **M3 (2026-11-14)**:
+  - **Start with Windows** via the per-user Run key (no admin rights), with a **silent login mode** that boots straight to the tray — no window flash.
+  - Notification-area icon: left-click shows the window; right-click menu with show / hide / quit.
+  - **Close-to-tray**: the × button hides the window (polling continues in the background); quit via the tray menu.
+  - **Per-container autostart checkboxes** (`Auto` column): checked containers are started when the app itself is auto-started at login.
+  - **Quit-after-autostart** option: the app exits on its own once every autostart container is running (180 s give-up timeout).
 
 ---
 

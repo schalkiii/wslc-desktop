@@ -3,6 +3,42 @@
 All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.0] - 2026-11-14
+
+### Added
+
+- **Start with Windows.** A settings menu (⚙ in the top bar) registers a
+  per-user `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` entry — no
+  admin rights required. The entry carries `--autostart` and (optionally)
+  `--silent`; the key is re-written on every launch so a moved exe never
+  leaves a stale login command behind.
+- **Silent login start (tray only).** With `--silent` the window is never
+  shown at login; the app lives in the notification area. Left-click the tray
+  icon to open the window, right-click for show / hide / quit.
+- **Close-to-tray.** The window close button now hides the window instead of
+  quitting (default on, toggleable); quit through the tray menu.
+- **Per-container autostart checkboxes** (`Auto` column on the containers
+  table). Checked containers are started when the app itself is auto-started
+  at login (`--autostart`).
+- **Quit-after-autostart option.** When enabled, the app exits on its own once
+  every autostart container reports running (180 s give-up timeout), so the
+  login launch starts containers and disappears.
+
+### Changed
+
+- `WslcDesktopApp::new` now takes launch flags parsed from
+  `--autostart` / `--silent` (see `src/autostart.rs`).
+- New modules: `src/autostart.rs` (Run key + flags), `src/tray.rs`
+  (notification-area icon + menu). Dependencies: `tray-icon` (Linux backends
+  disabled) and `winreg`.
+
+### Verified
+
+- End-to-end on Windows: silent hidden-window start keeps the event loop
+  alive (WM_CLOSE is intercepted into hide-to-tray), `--autostart` starts a
+  checked stopped container and the app exits by itself once it is running.
+- `cargo clippy --all-targets` clean; 50 unit tests pass.
+
 ## [0.2.6] - 2026-10-06
 
 ### Changed

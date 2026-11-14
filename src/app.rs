@@ -6,6 +6,7 @@ use std::time::Instant;
 use egui::Color32;
 use serde::{Deserialize, Serialize};
 
+use crate::autostart::LaunchFlags;
 use crate::poller::{self, Action, UiRequest, WorkerEvent, WorkerHandle};
 use crate::wslc::{Container, Image, Network, RunSpec, Stat, Volume};
 
@@ -38,12 +39,33 @@ pub(crate) struct Settings {
     /// `Context::set_pixels_per_point` so it scales both layout and fonts.
     #[serde(default = "default_ui_scale")]
     pub ui_scale: f32,
+    /// Start wslc-desktop at Windows login (per-user Run-key entry).
+    #[serde(default)]
+    pub autostart_enabled: bool,
+    /// Start hidden in the tray at login (adds `--silent` to the Run command).
+    #[serde(default = "default_true")]
+    pub autostart_silent: bool,
+    /// The window close button keeps the app alive in the tray instead of
+    /// quitting (quit via the tray menu instead).
+    #[serde(default = "default_true")]
+    pub close_to_tray: bool,
+    /// Quit the app once all autostart-checked containers are running.
+    #[serde(default)]
+    pub exit_after_autostart: bool,
+    /// Container display names checked for "start when the app auto-starts".
+    #[serde(default)]
+    pub autostart_containers: Vec<String>,
 }
 
 /// Default UI scale: 110% so the whole interface and fonts read a bit larger
 /// out of the box (overridable in the top bar; persisted once changed).
 fn default_ui_scale() -> f32 {
     1.1
+}
+
+/// Default for opt-out booleans (silent login start / close-to-tray).
+fn default_true() -> bool {
+    true
 }
 
 impl Default for Settings {
@@ -54,6 +76,11 @@ impl Default for Settings {
             log_timestamps: false,
             log_follow: true,
             ui_scale: default_ui_scale(),
+            autostart_enabled: false,
+            autostart_silent: true,
+            close_to_tray: true,
+            exit_after_autostart: false,
+            autostart_containers: Vec::new(),
         }
     }
 }
@@ -115,6 +142,16 @@ impl StatHistory {
 pub(crate) struct ConfirmState {
     pub message: String,
     pub action: Option<Action>,
+}
+
+/// Progress of the `--autostart` (login launch) container start sequence.
+pub(crate) struct AutostartFlow {
+    /// Container display names still to reach the running state.
+    pub pending: Vec<String>,
+    /// Start commands have been issued; now waiting for the containers.
+    pub issued: bool,
+    /// When the sequence began (drives the give-up timeout).
+    pub started: Instant,
 }
 
 /// State for the full "create / run container" wizard.
@@ -279,6 +316,15 @@ pub struct WslcDesktopApp {
     /// `new()` for why it must not be applied there.
     pub(crate) scale_initialized: bool,
 
+    /// Notification-area icon; `None` when it could not be installed.
+    pub(crate) tray: Option<crate::tray::Tray>,
+    /// Set once the app is intentionally quitting (bypasses close-to-tray).
+    pub(crate) quitting: bool,
+    /// Show a "still running in the tray" hint the next time the window opens.
+    pub(crate) tray_hint_pending: bool,
+    /// Login-launch container start sequence, when `--autostart` was given.
+    pub(crate) autostart_flow: Option<AutostartFlow>,
+
     pub(crate) confirm: Option<ConfirmState>,
     pub(crate) run_dialog: Option<RunDialog>,
     pub(crate) volume_dialog: Option<VolumeDialog>,
@@ -292,7 +338,7 @@ pub struct WslcDesktopApp {
 }
 
 impl WslcDesktopApp {
-    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>, launch_flags: LaunchFlags) -> Self {
         // Load persisted settings (falls back to defaults).
         let settings: Settings = cc
             .storage
@@ -330,6 +376,26 @@ impl WslcDesktopApp {
             .tx
             .send(UiRequest::SetAutoRefresh(settings.auto_refresh));
 
+        // Install the notification-area icon. Best effort: if the platform
+        // refuses, the app simply runs windowed-only.
+        let tray = crate::tray::Tray::install();
+
+        // Re-write the Run key on every launch when autostart is enabled, so a
+        // moved exe path or a changed `--silent` preference never leaves a
+        // stale login command behind. Errors surface via the settings menu.
+        if settings.autostart_enabled {
+            let _ = crate::autostart::set_enabled(true, settings.autostart_silent);
+        }
+
+        // Launched by the Run key at login: start the checked containers once
+        // the first snapshot tells us which of them actually exist.
+        let autostart_flow = (launch_flags.autostart && !settings.autostart_containers.is_empty())
+            .then(|| AutostartFlow {
+                pending: settings.autostart_containers.clone(),
+                issued: false,
+                started: Instant::now(),
+            });
+
         Self {
             worker,
             version: None,
@@ -359,6 +425,10 @@ impl WslcDesktopApp {
             command_sort_key: CommandSortKey::default(),
             command_sort_asc: true,
             scale_initialized: false,
+            tray,
+            quitting: false,
+            tray_hint_pending: false,
+            autostart_flow,
             confirm: None,
             run_dialog: None,
             volume_dialog: None,
@@ -406,7 +476,7 @@ impl WslcDesktopApp {
     }
 
     /// Drain all pending worker events into app state.
-    fn drain_events(&mut self) {
+    fn drain_events(&mut self, ctx: &egui::Context) {
         while let Ok(event) = self.worker.rx.try_recv() {
             match event {
                 WorkerEvent::Version(result) => {
@@ -428,6 +498,8 @@ impl WslcDesktopApp {
                     self.snapshot_error = None;
                     self.last_update = Some(Instant::now());
                     self.ensure_valid_selection();
+                    // Fresh container states drive the login-launch sequence.
+                    self.advance_autostart(ctx);
                 }
                 WorkerEvent::Stats(stats) => self.ingest_stats(stats),
                 WorkerEvent::Logs { target, text } => {
@@ -630,6 +702,119 @@ impl WslcDesktopApp {
             self.show_toast(format!("restored {added} preset command(s)"), false);
         }
     }
+
+    // ---- login autostart / tray ---------------------------------------------
+
+    /// Write (or clear) the login Run-key entry after a settings change.
+    pub(crate) fn apply_autostart(&mut self) {
+        let enabled = self.settings.autostart_enabled;
+        match crate::autostart::set_enabled(enabled, self.settings.autostart_silent) {
+            Ok(()) if enabled => self.show_toast("start with Windows enabled", false),
+            Ok(()) => self.show_toast("start with Windows disabled", false),
+            Err(e) => self.show_toast(format!("autostart update failed: {e}"), true),
+        }
+    }
+
+    /// Whether a container (by display name) is checked for autostart.
+    pub(crate) fn container_autostart(&self, name: &str) -> bool {
+        self.settings.autostart_containers.iter().any(|n| n == name)
+    }
+
+    /// Check / uncheck a container for autostart (persisted with the settings).
+    pub(crate) fn set_container_autostart(&mut self, name: &str, on: bool) {
+        let present = self.container_autostart(name);
+        if on && !present {
+            self.settings.autostart_containers.push(name.to_string());
+        } else if !on && present {
+            self.settings.autostart_containers.retain(|n| n != name);
+        }
+    }
+
+    /// Apply tray-icon interactions (left click / context menu).
+    fn handle_tray_events(&mut self, ctx: &egui::Context) {
+        let Some(tray) = &self.tray else { return };
+        for command in tray.drain() {
+            match command {
+                crate::tray::TrayCommand::ShowWindow => {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+                    if std::mem::take(&mut self.tray_hint_pending) {
+                        self.show_toast("app is still running in the tray", false);
+                    }
+                }
+                crate::tray::TrayCommand::HideWindow => {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+                }
+                crate::tray::TrayCommand::Quit => {
+                    // Mark the quit as intentional so close-to-tray does not
+                    // intercept it.
+                    self.quitting = true;
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                }
+            }
+        }
+    }
+
+    /// Drive the `--autostart` startup sequence from fresh container snapshots.
+    ///
+    /// First snapshot: issue `wslc start` for every checked container that
+    /// exists and is not already running. Later snapshots: retire names as
+    /// their containers come up; when none are left (or the 180 s give-up
+    /// timeout fires) the sequence finishes — optionally quitting the app.
+    fn advance_autostart(&mut self, ctx: &egui::Context) {
+        let Some(mut flow) = self.autostart_flow.take() else {
+            return;
+        };
+        if !flow.issued {
+            flow.issued = true;
+            let mut to_start: Vec<String> = Vec::new();
+            for name in std::mem::take(&mut flow.pending) {
+                match self.containers.iter().find(|c| c.display_name() == name) {
+                    Some(c) if c.state().is_running() => {}
+                    Some(c) => to_start.push(c.target()),
+                    // Container was removed since it was checked: drop it.
+                    None => {}
+                }
+            }
+            flow.pending = to_start.clone();
+            self.autostart_flow = Some(flow);
+            if to_start.is_empty() {
+                self.finish_autostart(ctx);
+                return;
+            }
+            for target in to_start {
+                self.send(UiRequest::Action(Action::Start(target)));
+            }
+            return;
+        }
+
+        // Waiting phase: retire names that are now running (or vanished).
+        flow.pending.retain(|name| {
+            self.containers
+                .iter()
+                .find(|c| c.display_name() == *name)
+                .map(|c| !c.state().is_running())
+                .unwrap_or(false)
+        });
+        let timed_out = flow.started.elapsed() > std::time::Duration::from_secs(180);
+        let done = flow.pending.is_empty() || timed_out;
+        self.autostart_flow = Some(flow);
+        if done {
+            self.finish_autostart(ctx);
+        }
+    }
+
+    /// End the login-launch sequence: quit when configured, else just toast.
+    fn finish_autostart(&mut self, ctx: &egui::Context) {
+        self.autostart_flow = None;
+        if self.settings.exit_after_autostart {
+            self.quitting = true;
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        } else {
+            self.show_toast("autostart containers launched", false);
+        }
+    }
 }
 
 impl eframe::App for WslcDesktopApp {
@@ -642,7 +827,22 @@ impl eframe::App for WslcDesktopApp {
             self.scale_initialized = true;
         }
 
-        self.drain_events();
+        // Tray icon interactions (may show/hide the window or request a quit).
+        self.handle_tray_events(ctx);
+
+        // Window close button: keep the app alive in the tray unless the user
+        // is quitting explicitly (tray "Quit" or exit-after-autostart).
+        if ctx.input(|i| i.viewport().close_requested())
+            && !self.quitting
+            && self.settings.close_to_tray
+            && self.tray.is_some()
+        {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+            self.tray_hint_pending = true;
+        }
+
+        self.drain_events(ctx);
 
         // Global keyboard shortcuts.
         if ctx.input(|i| i.key_pressed(egui::Key::F5)) {
