@@ -3,6 +3,37 @@
 All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.1] - 2026-11-15
+
+### Changed
+
+- **Testability refactor (no behaviour change).** The login-autostart
+  decisions moved out of `App::advance_autostart` into two pure functions
+  (`plan_autostart_starts` / `retain_pending_autostarts`) so the flow logic
+  is unit-testable without an egui context.
+- Code quality: `cargo fmt --check` is clean again (it was already a declared
+  gate); clearer loop indices in the tray-icon downsample; tray/registry
+  helpers use top-level imports.
+- Docs: test plan synced to 55 cases and de-versioned (the design record no
+  longer carries its own version history — CHANGELOG is the single history);
+  README inline "since vX" markers dropped; AGENTS.md gate count updated.
+
+### Added
+
+- Five new unit tests (55 total): autostart start planning (running skipped,
+  removed containers dropped, nameless containers mapped id → target),
+  pending retire (running/vanished retired, stopped kept), pre-autostart
+  `Settings` payload falling back to defaults and round-tripping, and a
+  seeded property test asserting `tokenize(quote-join(tokens)) == tokens`
+  over a constrained legal alphabet.
+
+### Notes
+
+- Coverage instrumentation could not run locally (`stable-x86_64-pc-windows-gnu`
+  ships without `profiler_builtins`; the MSVC toolchain is present but this
+  host has no VS linker). Gaps were quantified structurally instead; see the
+  test plan for the per-module index.
+
 ## [0.3.0] - 2026-11-14
 
 ### Added
