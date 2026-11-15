@@ -338,6 +338,49 @@ pub struct WslcDesktopApp {
     pub(crate) last_update: Option<Instant>,
 }
 
+/// One container the login-launch sequence still has to start.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct AutostartStart {
+    /// Display name — the key [`AutostartFlow::pending`] tracks.
+    pub name: String,
+    /// `wslc start` target (the container name, or its id when nameless).
+    pub target: String,
+}
+
+/// Decide which checked containers still need a `wslc start` on a fresh
+/// snapshot: containers already running are skipped, and checked names that
+/// no longer exist are dropped silently (the container was removed since it
+/// was checked).
+pub(crate) fn plan_autostart_starts(
+    checked: &[String],
+    containers: &[Container],
+) -> Vec<AutostartStart> {
+    let mut starts = Vec::new();
+    for name in checked {
+        match containers.iter().find(|c| c.display_name() == *name) {
+            Some(c) if c.state().is_running() => {}
+            Some(c) => starts.push(AutostartStart {
+                name: name.clone(),
+                target: c.target(),
+            }),
+            None => {}
+        }
+    }
+    starts
+}
+
+/// Retire pending names whose containers are now running — or have vanished
+/// from the snapshot (removed while the app was starting them).
+pub(crate) fn retain_pending_autostarts(pending: &mut Vec<String>, containers: &[Container]) {
+    pending.retain(|name| {
+        containers
+            .iter()
+            .find(|c| c.display_name() == *name)
+            .map(|c| !c.state().is_running())
+            .unwrap_or(false)
+    });
+}
+
 impl WslcDesktopApp {
     pub fn new(cc: &eframe::CreationContext<'_>, launch_flags: LaunchFlags) -> Self {
         // Load persisted settings (falls back to defaults).
@@ -769,35 +812,21 @@ impl WslcDesktopApp {
         };
         if !flow.issued {
             flow.issued = true;
-            let mut to_start: Vec<String> = Vec::new();
-            for name in std::mem::take(&mut flow.pending) {
-                match self.containers.iter().find(|c| c.display_name() == name) {
-                    Some(c) if c.state().is_running() => {}
-                    Some(c) => to_start.push(c.target()),
-                    // Container was removed since it was checked: drop it.
-                    None => {}
-                }
-            }
-            flow.pending = to_start.clone();
+            let starts = plan_autostart_starts(&flow.pending, &self.containers);
+            flow.pending = starts.iter().map(|start| start.name.clone()).collect();
             self.autostart_flow = Some(flow);
-            if to_start.is_empty() {
+            if starts.is_empty() {
                 self.finish_autostart(ctx);
                 return;
             }
-            for target in to_start {
-                self.send(UiRequest::Action(Action::Start(target)));
+            for start in starts {
+                self.send(UiRequest::Action(Action::Start(start.target)));
             }
             return;
         }
 
         // Waiting phase: retire names that are now running (or vanished).
-        flow.pending.retain(|name| {
-            self.containers
-                .iter()
-                .find(|c| c.display_name() == *name)
-                .map(|c| !c.state().is_running())
-                .unwrap_or(false)
-        });
+        retain_pending_autostarts(&mut flow.pending, &self.containers);
         let timed_out = flow.started.elapsed() > std::time::Duration::from_secs(180);
         let done = flow.pending.is_empty() || timed_out;
         self.autostart_flow = Some(flow);
@@ -1334,5 +1363,77 @@ mod tests {
         assert_eq!(presets[0].name, "redis_mp");
         assert!(parse_presets_json("not json").is_err());
         assert!(parse_presets_json("[]").unwrap().is_empty());
+    }
+
+    // ---- login autostart decision logic -------------------------------------
+
+    /// Build a Container from the minimal wslc-shaped JSON the parsers accept.
+    fn sample_container(id: &str, name: &str, state: &str) -> Container {
+        let raw = format!(r#"{{"ID":"{id}","Names":"{name}","State":"{state}"}}"#);
+        serde_json::from_str(&raw).expect("sample container JSON should parse")
+    }
+
+    /// 首帧决策：已运行的跳过、已删除的丢弃、其余映射为 start 目标。
+    #[test]
+    fn plan_autostart_skips_running_and_missing() {
+        let containers = vec![
+            sample_container("aaa111", "web", "running"),
+            sample_container("bbb222", "db", "exited"),
+        ];
+        let checked = ["web".to_string(), "db".to_string(), "ghost".to_string()];
+        let starts = plan_autostart_starts(&checked, &containers);
+        assert_eq!(
+            starts,
+            vec![AutostartStart {
+                name: "db".into(),
+                target: "db".into(),
+            }]
+        );
+    }
+
+    /// 无名容器：display_name 回退短 ID，start 目标取完整 ID。
+    #[test]
+    fn plan_autostart_targets_nameless_container_by_id() {
+        let containers = vec![sample_container("deadbeefcafe", "", "created")];
+        let checked: Vec<String> = containers.iter().map(|c| c.display_name()).collect();
+        let starts = plan_autostart_starts(&checked, &containers);
+        assert_eq!(starts.len(), 1);
+        assert_eq!(starts[0].name, "deadbeefcafe");
+        assert_eq!(starts[0].target, "deadbeefcafe");
+    }
+
+    /// 等待期退役：已运行的与消失的移出 pending，仍在停止的保留。
+    #[test]
+    fn retain_pending_drops_running_and_missing_keeps_stopped() {
+        let containers = vec![
+            sample_container("aaa111", "web", "running"),
+            sample_container("bbb222", "db", "exited"),
+        ];
+        let mut pending = vec!["web".to_string(), "db".to_string(), "ghost".to_string()];
+        retain_pending_autostarts(&mut pending, &containers);
+        assert_eq!(pending, vec!["db".to_string()]);
+    }
+
+    /// 旧设置载荷（无 autostart/tray 字段）反序列化必须回落默认值，
+    /// 且新字段可完整往返——否则升级会清空用户的勾选名单。
+    #[test]
+    fn settings_missing_autostart_fields_fall_back_to_defaults() {
+        let old = r#"{"dark_mode":false,"auto_refresh":false,"log_timestamps":true,"log_follow":false,"ui_scale":1.2}"#;
+        let settings: Settings =
+            serde_json::from_str(old).expect("pre-autostart settings payload should load");
+        assert!(!settings.autostart_enabled);
+        assert!(settings.autostart_silent, "silent login start defaults on");
+        assert!(settings.close_to_tray, "close-to-tray defaults on");
+        assert!(!settings.exit_after_autostart);
+        assert!(settings.autostart_containers.is_empty());
+        assert_eq!(settings.ui_scale, 1.2);
+
+        let mut updated = settings;
+        updated.autostart_enabled = true;
+        updated.autostart_containers = vec!["web".into(), "db".into()];
+        let json = serde_json::to_string(&updated).expect("settings should serialize");
+        let back: Settings = serde_json::from_str(&json).expect("settings should deserialize");
+        assert!(back.autostart_enabled);
+        assert_eq!(back.autostart_containers, vec!["web", "db"]);
     }
 }

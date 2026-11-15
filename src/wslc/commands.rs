@@ -487,4 +487,39 @@ mod tests {
         let args = tokenize(r#"run image bash -c "echo hi && ls""#);
         assert_eq!(args, vec!["run", "image", "bash", "-c", "echo hi && ls"]);
     }
+
+    /// 种子化属性测试：任意合法 token 序列经「按需加引号拼接 → tokenize」
+    /// 必须原样还原。输入空间限制在无引号、非空的 token 上（正是
+    /// `tokenize` 文档承诺的可逆域）；固定 LCG 种子，失败用例可直接复现。
+    #[test]
+    fn tokenize_roundtrips_quoted_tokens() {
+        const SEED: u64 = 0x5EED_1234;
+        let alphabet = ["a", "B", "x y", "p-q", "数据 列", "k=v", r"C:\p q\r"];
+        let mut seed = SEED;
+        let mut next = |bound: usize| {
+            seed = seed
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            ((seed >> 33) as usize) % bound
+        };
+        for _ in 0..200 {
+            let count = next(5);
+            let tokens: Vec<String> = (0..count)
+                .map(|_| alphabet[next(alphabet.len())].to_string())
+                .collect();
+            // 含空白（或空串）的 token 用双引号包裹，其余原样拼接。
+            let line = tokens
+                .iter()
+                .map(|token| {
+                    if token.is_empty() || token.contains(char::is_whitespace) {
+                        format!("\"{token}\"")
+                    } else {
+                        token.clone()
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(" ");
+            assert_eq!(tokenize(&line), tokens, "seed={SEED:#x} line={line:?}");
+        }
+    }
 }
