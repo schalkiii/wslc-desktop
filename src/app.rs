@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::autostart::LaunchFlags;
 use crate::poller::{self, Action, UiRequest, WorkerEvent, WorkerHandle};
+use crate::tray::TrayCommand;
 use crate::wslc::{Container, Image, Network, RunSpec, Stat, Volume};
 
 /// Max samples kept per container for the CPU/memory history plots.
@@ -735,7 +736,7 @@ impl WslcDesktopApp {
         let Some(tray) = &self.tray else { return };
         for command in tray.drain() {
             match command {
-                crate::tray::TrayCommand::ShowWindow => {
+                TrayCommand::ShowWindow => {
                     ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
                     ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
                     ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
@@ -743,10 +744,10 @@ impl WslcDesktopApp {
                         self.show_toast("app is still running in the tray", false);
                     }
                 }
-                crate::tray::TrayCommand::HideWindow => {
+                TrayCommand::HideWindow => {
                     ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
                 }
-                crate::tray::TrayCommand::Quit => {
+                TrayCommand::Quit => {
                     // Mark the quit as intentional so close-to-tray does not
                     // intercept it.
                     self.quitting = true;

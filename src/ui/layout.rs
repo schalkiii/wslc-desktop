@@ -9,6 +9,8 @@ use crate::app::{
 use crate::poller::{Action, UiRequest};
 use crate::wslc::types::relative_time;
 
+use crate::autostart::registered_command;
+
 impl WslcDesktopApp {
     pub(crate) fn top_bar(&mut self, ctx: &egui::Context) {
         egui::TopBottomPanel::top("top_bar").show(ctx, |ui| {
@@ -84,7 +86,7 @@ impl WslcDesktopApp {
                             self.settings.exit_after_autostart = exit_after;
                         }
                         ui.separator();
-                        match crate::autostart::registered_command() {
+                        match registered_command() {
                             Some(command) => {
                                 ui.label(
                                     RichText::new(format!("Run key: {}", truncate(&command, 46)))

@@ -98,24 +98,24 @@ fn tray_icon_data() -> Option<Icon> {
         return None;
     }
     let mut out = vec![0u8; DST * DST * 4];
+    let samples_per_pixel = (FACTOR * FACTOR) as u32;
     for y in 0..DST {
         for x in 0..DST {
             let (mut r, mut g, mut b, mut a) = (0u32, 0u32, 0u32, 0u32);
             for sy in 0..FACTOR {
                 for sx in 0..FACTOR {
-                    let i = ((y * FACTOR + sy) * SRC + x * FACTOR + sx) * 4;
-                    r += RGBA[i] as u32;
-                    g += RGBA[i + 1] as u32;
-                    b += RGBA[i + 2] as u32;
-                    a += RGBA[i + 3] as u32;
+                    let source_index = ((y * FACTOR + sy) * SRC + x * FACTOR + sx) * 4;
+                    r += RGBA[source_index] as u32;
+                    g += RGBA[source_index + 1] as u32;
+                    b += RGBA[source_index + 2] as u32;
+                    a += RGBA[source_index + 3] as u32;
                 }
             }
-            let n = (FACTOR * FACTOR) as u32;
-            let o = (y * DST + x) * 4;
-            out[o] = (r / n) as u8;
-            out[o + 1] = (g / n) as u8;
-            out[o + 2] = (b / n) as u8;
-            out[o + 3] = (a / n) as u8;
+            let dst_index = (y * DST + x) * 4;
+            out[dst_index] = (r / samples_per_pixel) as u8;
+            out[dst_index + 1] = (g / samples_per_pixel) as u8;
+            out[dst_index + 2] = (b / samples_per_pixel) as u8;
+            out[dst_index + 3] = (a / samples_per_pixel) as u8;
         }
     }
     Icon::from_rgba(out, DST as u32, DST as u32).ok()

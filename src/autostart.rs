@@ -106,7 +106,9 @@ mod tests {
     #[test]
     fn parse_flags_recognizes_only_known_switches() {
         let flags = parse_launch_flags(
-            ["--autostart", "--silent", "--other"].iter().map(|s| s.to_string()),
+            ["--autostart", "--silent", "--other"]
+                .iter()
+                .map(|s| s.to_string()),
         );
         assert!(flags.autostart);
         assert!(flags.silent);
