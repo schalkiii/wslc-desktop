@@ -3,6 +3,40 @@
 All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.2] - 2026-11-16
+
+### Changed
+
+- **Slow requests no longer block the snapshot poll.** `pull` / `run` /
+  lifecycle actions / `logs` / `inspect` / `exec` / create operations are
+  dispatched to a serialized single-flight "slow lane" (`SlowLane` + FIFO
+  `SlowQueue`) off the polling thread. A 600 s image pull can no longer freeze
+  the 2 s snapshot refresh, and actions keep their previous one-at-a-time
+  ordering. On completion the polling thread — not the slow lane — refreshes
+  the snapshot and stats.
+- **Hidden windows stop spawning wslc processes.** A new
+  `UiRequest::SetPollingContext` carries window visibility and
+  login-autostart activity. Periodic snapshot/stats polling is skipped while
+  the window is hidden, with two exceptions: an active `--autostart` sequence
+  keeps polling (it needs snapshots to retire containers), and showing the
+  window again triggers an immediate refresh. `update()` still requests a
+  repaint every 500 ms, so tray clicks remain responsive while idle.
+
+### Added
+
+- Three unit tests (58 total): slow/control request classification, FIFO and
+  single-flight slow-queue behaviour, and the polling-context truth table.
+
+### Notes
+
+- Local end-to-end smoke test (Windows, real wslc): a hidden start created 6
+  wslc subprocesses during startup and **0** over the following 7 s; an
+  `--autostart --silent` run kept polling (3 more subprocesses after warmup),
+  started the stopped container, and exited on its own in 6.6 s. WM_CLOSE was
+  still intercepted while hidden. A pre-existing resident `wslc.exe` process
+  is unrelated to the GUI, so verification tracked PID changes rather than
+  mere process presence.
+
 ## [0.3.1] - 2026-11-15
 
 ### Changed

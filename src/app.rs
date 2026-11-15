@@ -323,6 +323,9 @@ pub struct WslcDesktopApp {
     pub(crate) quitting: bool,
     /// Show a "still running in the tray" hint the next time the window opens.
     pub(crate) tray_hint_pending: bool,
+    /// Whether the window is currently visible; a hidden window throttles the
+    /// background snapshot polling (see `poller::SetPollingContext`).
+    pub(crate) window_visible: bool,
     /// Login-launch container start sequence, when `--autostart` was given.
     pub(crate) autostart_flow: Option<AutostartFlow>,
 
@@ -440,6 +443,15 @@ impl WslcDesktopApp {
                 started: Instant::now(),
             });
 
+        // Login launches may start hidden. Tell the worker whether it should
+        // poll: a hidden window is idle, but an active autostart sequence needs
+        // snapshots to know when its containers are up.
+        let window_visible = !launch_flags.silent;
+        let _ = worker.tx.send(UiRequest::SetPollingContext {
+            window_visible,
+            autostart_active: autostart_flow.is_some(),
+        });
+
         Self {
             worker,
             version: None,
@@ -472,6 +484,7 @@ impl WslcDesktopApp {
             tray,
             quitting: false,
             tray_hint_pending: false,
+            window_visible,
             autostart_flow,
             confirm: None,
             run_dialog: None,
@@ -488,6 +501,15 @@ impl WslcDesktopApp {
     /// Send a request to the worker thread.
     pub(crate) fn send(&self, request: UiRequest) {
         let _ = self.worker.tx.send(request);
+    }
+
+    /// Re-sync the worker's polling context after a visibility or
+    /// login-autostart state change.
+    fn sync_polling_context(&self) {
+        self.send(UiRequest::SetPollingContext {
+            window_visible: self.window_visible,
+            autostart_active: self.autostart_flow.is_some(),
+        });
     }
 
     /// Show a transient status message.
@@ -783,12 +805,16 @@ impl WslcDesktopApp {
                     ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
                     ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
                     ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+                    self.window_visible = true;
+                    self.sync_polling_context();
                     if std::mem::take(&mut self.tray_hint_pending) {
                         self.show_toast("app is still running in the tray", false);
                     }
                 }
                 TrayCommand::HideWindow => {
                     ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+                    self.window_visible = false;
+                    self.sync_polling_context();
                 }
                 TrayCommand::Quit => {
                     // Mark the quit as intentional so close-to-tray does not
@@ -838,6 +864,8 @@ impl WslcDesktopApp {
     /// End the login-launch sequence: quit when configured, else just toast.
     fn finish_autostart(&mut self, ctx: &egui::Context) {
         self.autostart_flow = None;
+        // The sequence no longer needs snapshots; a hidden window can go idle.
+        self.sync_polling_context();
         if self.settings.exit_after_autostart {
             self.quitting = true;
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -869,6 +897,8 @@ impl eframe::App for WslcDesktopApp {
         {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+            self.window_visible = false;
+            self.sync_polling_context();
             self.tray_hint_pending = true;
         }
 

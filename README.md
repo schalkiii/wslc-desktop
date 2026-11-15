@@ -23,9 +23,9 @@
 | **Run wizard** | image / name / port mappings / env vars / volume mounts / network / workdir / user / hostname / memory / CPU count / entrypoint / command / detached / auto-remove / publish-all-ports; live `wslc run …` preview you can copy |
 | **Detail panel** | Logs (**streaming follow `-f`**, timestamps, reload, copy-all), raw `inspect` JSON, CPU% / memory chart for the selected container, Exec (running containers only) |
 | **Saved Commands** | Save & persist any `wslc run …` command line; one-click run / copy / edit (📝) / delete; **click-to-sort by Name / Description / Command**; seeds **27 homelab container presets** from `wslc-menu.ps1` on first launch; "Restore presets" tops up without overwriting your custom entries; **local preset override**: drop a `presets.local.json` (gitignored, never committed) next to the exe or in the working directory to override builtin presets by name — ideal for personal commands carrying real credentials |
-| **Live monitoring** | Background 2s `wslc stats` poll, scrolling samples for trend charts; container list shows CPU / Mem / Mem% / Net I/O / Block I/O / PIDs directly |
+| **Live monitoring** | Background 2s `wslc stats` poll, scrolling samples for trend charts; container list shows CPU / Mem / Mem% / Net I/O / Block I/O / PIDs directly. **Polling pauses while the window is hidden** (no wslc subprocesses in the tray), resumes with an immediate refresh when shown, and stays on during a login-autostart sequence |
+| **Non-blocking actions** | Long-running calls (`pull` / `run` / lifecycle actions / `logs` / `inspect` / `exec` / create) run in a **serialized slow lane** off the polling thread — a 600 s image pull no longer freezes the 2 s refresh, and actions keep their one-at-a-time ordering |
 | **Experience** | Dark / light theme toggle (persisted), **global UI-scale slider** (top bar `× UI`, 80%–250% live, scales layout + fonts together, defaults to 110%), filter by name / image / driver, danger-action confirmation, result toasts, bottom status bar (counts + live/paused + "updated Ns ago"), state color coding, **bundled CJK font** (Noto Sans SC subset so Chinese command descriptions render instead of tofu boxes), **all icons / symbols bundled** (window icon + action buttons + sort arrows ship with the font, so nothing boxes on any host) |
-
 | **Autostart & tray** | **Start with Windows** via the per-user `HKCU\…\Run` key (no admin rights), **silent login start** (tray icon only, no window flash), notification-area icon (left-click shows the window; right-click menu: show / hide / quit), **close-to-tray** (the × button hides the window instead of quitting), **per-container autostart checkboxes** in the `Auto` column (checked containers are started when the app itself auto-starts at login), and **quit-after-autostart** (exit once every autostart container is running; 180 s give-up timeout) |
 
 > State mapping (cross-checked against `lazywslc`/`lazywslcontainer` and verified on local wslc 2.9.3.0): `1=Created`, `2=Running`, `3=Exited`, `4=Paused`. wslc ≥3.x reports `State` as a string (`"exited"`) instead of a number; both encodings are accepted.
@@ -43,9 +43,14 @@
                 │ WorkerEvent    │ UiRequest
         (mpsc channel, non-blocking)            │
 ┌───────────────┴───────────────▼──────────────┐
-│            background worker thread (poller.rs)│
-│   periodic poll + UI-request handling; all wslc
-│   calls live here                             │
+│        polling worker thread (poller.rs)       │
+│  2s snapshot/stats poll (paused when hidden)  │
+│  + control requests + log-stream pump         │
+└───────────────────────┬──────────────────────┘
+                        │ dispatches slow requests
+┌───────────────────────▼──────────────────────┐
+│  serialized slow lane (single-flight FIFO)     │
+│  pull / run / actions / logs / inspect / exec │
 └───────────────────────┬──────────────────────┘
                         │
 ┌───────────────────────▼──────────────────────┐
@@ -59,6 +64,8 @@
 
 **Key design choices:**
 - **The UI never blocks**: every `wslc` subprocess call runs on a background thread and talks to the UI over `std::sync::mpsc`; no tokio.
+- **Two-lane scheduling**: the polling thread only does control work and the 2 s snapshot. Slow requests are queued in a single-flight lane, so a 600 s pull cannot stall the refresh, and actions stay strictly ordered.
+- **An idle tray is truly idle**: while the window is hidden and no login-autostart sequence is running, no wslc subprocess is spawned. `update()` still requests a repaint every 500 ms, so tray clicks stay responsive; showing the window refreshes immediately.
 - **No console flash**: each subprocess is spawned with `CREATE_NO_WINDOW` (`0x08000000`) on Windows.
 - **Bounded timeouts**: every command has a timeout (default 20s); on timeout it is killed and an error returned, so the UI can't hang.
 - **Reusable backend**: `src/wslc/` has zero dependency on egui and can be reused by a TUI / CLI / tests.
@@ -137,7 +144,7 @@ wslc-desktop/
 │   ├── app.rs                  # app state, event loop, top-level layout
 │   ├── autostart.rs            # HKCU Run-key login entry + --autostart/--silent flags
 │   ├── tray.rs                 # notification-area icon + context menu
-│   ├── poller.rs               # background worker thread (poll + request handling)
+│   ├── poller.rs               # polling worker + serialized slow lane + hidden-window throttling
 │   ├── wslc/                   # GUI-agnostic wslc backend
 │   │   ├── client.rs           #   subprocess exec, timeout, header stripping
 │   │   ├── commands.rs         #   wslc command wrappers
@@ -188,9 +195,12 @@ See [`docs/竞品拆解与技术方案.md`](docs/竞品拆解与技术方案.md)
 - **M3 (2026-11-14)**:
   - **Start with Windows** via the per-user Run key (no admin rights), with a **silent login mode** that boots straight to the tray — no window flash.
   - Notification-area icon: left-click shows the window; right-click menu with show / hide / quit.
-  - **Close-to-tray**: the × button hides the window (polling continues in the background); quit via the tray menu.
+  - **Close-to-tray**: the × button hides the window (background polling pauses until the window is shown again); quit via the tray menu.
   - **Per-container autostart checkboxes** (`Auto` column): checked containers are started when the app itself is auto-started at login.
   - **Quit-after-autostart** option: the app exits on its own once every autostart container is running (180 s give-up timeout).
+- **M4 (2026-11-16)**:
+  - **Two-lane worker**: long-running wslc calls moved to a serialized slow lane, so a 600 s `pull` no longer freezes the 2 s snapshot refresh.
+  - **Idle tray polling**: no wslc subprocesses while the window is hidden; immediate refresh when shown; polling stays active during the login-autostart sequence.
 
 ---
 
