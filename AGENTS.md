@@ -5,7 +5,7 @@ Windows 桌面 GUI（Rust + egui/eframe），管理 Microsoft WSL Containers（`
 ## 怎么跑
 
 - 开发：`cargo run`　·　Release：`cargo build --release` → `target/release/wslc-desktop.exe`
-- 门禁：`cargo test`（50 例）+ `cargo clippy --all-targets`（零警告）
+- 门禁：`cargo test`（55 例）+ `cargo clippy --all-targets`（零警告）
 - UI 改动必须看真实窗口验证；`--silent` 启动只驻留托盘（窗口隐藏）。
 - **不要**用 `exe --version` 查版本：程序没有 CLI 版本参数，会启动 GUI 阻塞命令行；用 `git describe --tags`。
 - 发布：推 `v*` 标签即触发 `.github/workflows/release.yml`（windows-latest）发布 exe 资产。

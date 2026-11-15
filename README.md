@@ -28,7 +28,7 @@
 
 | **Autostart & tray** | **Start with Windows** via the per-user `HKCU\…\Run` key (no admin rights), **silent login start** (tray icon only, no window flash), notification-area icon (left-click shows the window; right-click menu: show / hide / quit), **close-to-tray** (the × button hides the window instead of quitting), **per-container autostart checkboxes** in the `Auto` column (checked containers are started when the app itself auto-starts at login), and **quit-after-autostart** (exit once every autostart container is running; 180 s give-up timeout) |
 
-> State mapping (cross-checked against `lazywslc`/`lazywslcontainer` and verified on local wslc 2.9.3.0): `1=Created`, `2=Running`, `3=Exited`, `4=Paused`. wslc ≥3.x reports `State` as a string (`"exited"`) instead of a number; both encodings are accepted (v0.2.4).
+> State mapping (cross-checked against `lazywslc`/`lazywslcontainer` and verified on local wslc 2.9.3.0): `1=Created`, `2=Running`, `3=Exited`, `4=Paused`. wslc ≥3.x reports `State` as a string (`"exited"`) instead of a number; both encodings are accepted.
 > **Known limits**: wslc currently offers no `pause`/`rename`, CVE/SBOM scanning, drag-and-drop volume mounts, or Compose — this tool does not fake those commands.
 
 ---
