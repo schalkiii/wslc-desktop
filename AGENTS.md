@@ -5,7 +5,7 @@ Windows 桌面 GUI（Rust + egui/eframe），管理 Microsoft WSL Containers（`
 ## 怎么跑
 
 - 开发：`cargo run`　·　Release：`cargo build --release` → `target/release/wslc-desktop.exe`
-- 门禁：`cargo test`（58 例）+ `cargo clippy --all-targets`（零警告）+ `cargo fmt --check`
+- 门禁：`cargo test`（60 例）+ `cargo clippy --all-targets`（零警告）+ `cargo fmt --check`
 - UI 改动必须看真实窗口验证；`--silent` 启动只驻留托盘（窗口隐藏）。
 - **不要**用 `exe --version` 查版本：程序没有 CLI 版本参数，会启动 GUI 阻塞命令行；用 `git describe --tags`。
 - 发布：推 `v*` 标签即触发 `.github/workflows/release.yml`（windows-latest）发布 exe 资产。
@@ -37,5 +37,5 @@ Rust 2021 · eframe/egui 0.29（glow + persistence）· egui_plot · serde/serde
 
 ## 当前状态与下一步
 
-- v0.3.2（2026-11-16）：M1–M4 已实现（CRUD/生命周期/向导/日志/统计/命令库/缩放/开机自启 + 托盘 + 逐容器自启 + 自启后退出 + 双车道 worker + 托盘空闲降频）。
+- v0.3.3（2026-11-17）：M1–M4 已实现（CRUD/生命周期/向导/日志/统计/命令库/缩放/开机自启 + 托盘 + 逐容器自启 + 自启后退出 + 双车道 worker + 托盘空闲降频 + 镜像行内重拉 + Run 向导保存到命令库）。
 - 下一步与路线图以 README「Roadmap」为准；不要在此文件维护第二份路线图。
