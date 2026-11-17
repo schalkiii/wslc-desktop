@@ -17,7 +17,7 @@
 | Area | Capabilities |
 | --- | --- |
 | **Containers** | List (incl. stopped, with **live CPU / memory / network I/O / block I/O / PIDs columns** and **click-to-sort headers**), start / stop / restart / kill, delete (forceable), bulk prune, one-click open ports in browser |
-| **Images** | List, **per-image `In Use` status column (click to jump to the containers using it)**, delete, prune, pull from registry (with timeout guard); the Pull dialog bundles **one-click China mirror sources** (1Panel / DaoCloud / 毫秒镜像 / Nanjing University / 轩辕镜像 / rat.dev / dockerpull) that rewrite the registry prefix automatically |
+| **Images** | List, **per-image `In Use` status column (click to jump to the containers using it)**, **per-row one-click re-pull of that tag** (`🔄`, updates the image to the latest remote digest; disabled for dangling images), delete, prune, pull from registry (with timeout guard); the Pull dialog bundles **one-click China mirror sources** (1Panel / DaoCloud / 毫秒镜像 / Nanjing University / 轩辕镜像 / rat.dev / dockerpull) that rewrite the registry prefix automatically |
 | **Volumes** | List, delete, create (guest / vhd driver), bulk prune |
 | **Networks** | List, create, delete, bulk prune — neither TUI competitor has this |
 | **Run wizard** | image / name / port mappings / env vars / volume mounts / network / workdir / user / hostname / memory / CPU count / entrypoint / command / detached / auto-remove / publish-all-ports; live `wslc run …` preview you can copy |

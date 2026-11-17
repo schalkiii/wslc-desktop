@@ -3,6 +3,17 @@
 All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+
+- **Per-image re-pull button.** Every row in the Images table now carries a
+  `🔄` action that re-pulls that row's `repository:tag` (updating it to the
+  latest remote digest) through the same request path as the Pull dialog, so
+  it runs in the serialized slow lane and cannot stall the snapshot refresh.
+  Dangling images (`<none>:<none>`) render the button disabled because there
+  is no repository/tag to pull.
+
 ## [0.3.2] - 2026-11-16
 
 ### Changed

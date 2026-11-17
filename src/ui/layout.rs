@@ -580,18 +580,22 @@ impl WslcDesktopApp {
 
     fn image_table(&mut self, ui: &mut egui::Ui) {
         ui.add_space(4.0);
-        let rows: Vec<(String, String, String, String, usize)> = self
+        // `pull_ref` is `None` for dangling images (`<none>:<none>`): there is
+        // no repository/tag to re-pull, so the button is disabled for them.
+        let rows: Vec<(String, String, String, String, usize, Option<String>)> = self
             .images
             .iter()
             .filter(|i| self.filter_matches(&[&i.repository, &i.tag]))
             .map(|i| {
                 let in_use = self.containers.iter().filter(|c| c.uses_image(i)).count();
+                let pull_ref = (!i.repository.is_empty()).then(|| i.reference());
                 (
                     i.reference(),
                     i.short_id(),
                     i.size_display(),
                     relative_time(i.created),
                     in_use,
+                    pull_ref,
                 )
             })
             .collect();
@@ -617,7 +621,7 @@ impl WslcDesktopApp {
                         }
                         ui.end_row();
 
-                        for (reference, short_id, size, created, in_use) in rows {
+                        for (reference, short_id, size, created, in_use, pull_ref) in rows {
                             let selected =
                                 self.selected_image.as_deref() == Some(reference.as_str());
                             if ui
@@ -662,6 +666,30 @@ impl WslcDesktopApp {
                                 {
                                     let r = reference.clone();
                                     self.copy_to_clipboard(ui.ctx(), r);
+                                }
+                                match pull_ref {
+                                    Some(target) => {
+                                        if ui
+                                            .small_button("🔄")
+                                            .on_hover_text(
+                                                "Pull this tag again to update it to the latest \
+                                                 remote digest",
+                                            )
+                                            .clicked()
+                                        {
+                                            self.send(UiRequest::Pull {
+                                                reference: target.clone(),
+                                            });
+                                            self.show_toast(format!("pulling {target}…"), false);
+                                        }
+                                    }
+                                    None => {
+                                        ui.add_enabled(false, egui::Button::new("🔄").small())
+                                            .on_hover_text(
+                                                "Dangling image (no repository/tag) — nothing \
+                                                 to pull",
+                                            );
+                                    }
                                 }
                                 if ui.small_button("🗑").on_hover_text("Remove image").clicked() {
                                     self.confirm(
