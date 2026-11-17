@@ -110,6 +110,38 @@ pub(crate) struct SavedCommand {
     pub command: String,
 }
 
+/// Derive a Commands-library name for a run entry: the container name when
+/// given, else the image's last path segment without its tag.
+pub(crate) fn saved_command_name(container_name: &str, image: &str) -> String {
+    let trimmed = container_name.trim();
+    if !trimmed.is_empty() {
+        return trimmed.to_string();
+    }
+    let repo = image.rsplit('/').next().unwrap_or(image);
+    let stem = repo.split(':').next().unwrap_or(repo);
+    if stem.is_empty() {
+        "run".to_string()
+    } else {
+        stem.to_string()
+    }
+}
+
+/// Insert a saved command, replacing an existing entry with the same name so
+/// repeated "Save to Commands" runs do not pile up duplicates.
+/// Returns true when a new entry was added, false when one was overwritten.
+pub(crate) fn upsert_saved_command(commands: &mut Vec<SavedCommand>, entry: SavedCommand) -> bool {
+    match commands.iter_mut().find(|c| c.name == entry.name) {
+        Some(existing) => {
+            *existing = entry;
+            false
+        }
+        None => {
+            commands.push(entry);
+            true
+        }
+    }
+}
+
 /// Which tab of the detail panel is active.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum DetailTab {
@@ -174,6 +206,8 @@ pub(crate) struct RunDialog {
     pub detach: bool,
     pub auto_remove: bool,
     pub publish_all: bool,
+    /// Also store the resulting command line in the Commands library.
+    pub save_to_commands: bool,
 }
 
 impl RunDialog {
@@ -1274,6 +1308,7 @@ mod tests {
             detach: true,
             auto_remove: false,
             publish_all: false,
+            save_to_commands: false,
         };
         let spec = dialog.to_spec();
         assert_eq!(spec.image, "nginx:latest");
@@ -1380,6 +1415,48 @@ mod tests {
         assert_eq!(merged[0].description, "real a");
         assert_eq!(merged[1].description, "b");
         assert_eq!(merged[2].description, "new c");
+    }
+
+    #[test]
+    fn saved_command_name_prefers_container_then_image_stem() {
+        assert_eq!(saved_command_name("web", "a/b/c:tag"), "web");
+        assert_eq!(saved_command_name("  ", "alpine"), "alpine");
+        assert_eq!(
+            saved_command_name("", "registry.example.com:5000/ns/app:1.2"),
+            "app"
+        );
+        assert_eq!(saved_command_name("", ""), "run");
+    }
+
+    #[test]
+    fn upsert_saved_command_replaces_same_name() {
+        let mut commands = vec![SavedCommand {
+            name: "web".into(),
+            description: "old".into(),
+            command: "wslc run -d --name web old".into(),
+        }];
+        let added = upsert_saved_command(
+            &mut commands,
+            SavedCommand {
+                name: "web".into(),
+                description: "new".into(),
+                command: "wslc run -d --name web new".into(),
+            },
+        );
+        assert!(!added, "same name must overwrite");
+        assert_eq!(commands.len(), 1);
+        assert_eq!(commands[0].command, "wslc run -d --name web new");
+
+        let added = upsert_saved_command(
+            &mut commands,
+            SavedCommand {
+                name: "db".into(),
+                description: String::new(),
+                command: "wslc run -d --name db img".into(),
+            },
+        );
+        assert!(added, "new name must append");
+        assert_eq!(commands.len(), 2);
     }
 
     /// 本地覆盖文件解析：合法数组成功；坏 JSON 报错（由调用方回退内置）。

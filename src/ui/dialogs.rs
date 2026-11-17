@@ -150,6 +150,12 @@ impl WslcDesktopApp {
                                 ui.checkbox(&mut d.auto_remove, "Auto-remove (--rm)");
                                 ui.checkbox(&mut d.publish_all, "Publish all (-P)");
                             });
+                            ui.add_space(6.0);
+                            ui.checkbox(&mut d.save_to_commands, "Save to Commands")
+                                .on_hover_text(
+                                    "Also store this command line in the Commands library. \
+                                     An entry with the same name is overwritten.",
+                                );
 
                             ui.add_space(6.0);
                             preview = d.to_spec().preview();
@@ -174,8 +180,23 @@ impl WslcDesktopApp {
 
         if do_run {
             if let Some(d) = self.run_dialog.take() {
-                self.send(UiRequest::Run(Box::new(d.to_spec())));
-                self.show_toast("run requested…", false);
+                let spec = d.to_spec();
+                let mut toast = "run requested…".to_string();
+                if d.save_to_commands {
+                    let entry = crate::app::SavedCommand {
+                        name: crate::app::saved_command_name(&spec.name, &spec.image),
+                        description: spec.image.clone(),
+                        command: spec.preview(),
+                    };
+                    let added = crate::app::upsert_saved_command(&mut self.saved_commands, entry);
+                    toast = if added {
+                        "run requested… (saved to Commands)".to_string()
+                    } else {
+                        "run requested… (updated in Commands)".to_string()
+                    };
+                }
+                self.send(UiRequest::Run(Box::new(spec)));
+                self.show_toast(toast, false);
             }
         } else if cancel {
             self.run_dialog = None;

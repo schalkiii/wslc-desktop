@@ -13,6 +13,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   it runs in the serialized slow lane and cannot stall the snapshot refresh.
   Dangling images (`<none>:<none>`) render the button disabled because there
   is no repository/tag to pull.
+- **Save to Commands from the Run wizard.** The create/run dialog gained a
+  "Save to Commands" checkbox; when ticked, pressing Run also stores the full
+  `wslc run …` line in the Commands library. The entry is named after the
+  container (falling back to the image's last path segment), and an existing
+  entry with the same name is overwritten instead of duplicated.
+
+### Tests
+
+- Two new unit tests (60 total): the stored-command name fallback chain and
+  the same-name upsert (overwrite vs append).
 
 ## [0.3.2] - 2026-11-16
 
